@@ -1,4 +1,4 @@
-import SalesScreen from "./screens/SalesScreen";
+import { SalesScreen } from "./screens/SalesScreen";
 
 export default function App() {
   return <SalesScreen />;

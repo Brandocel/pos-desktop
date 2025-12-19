@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { CATALOG, FLAVORS } from "../pos/catalog";
 import type { CartItem, Category, Product } from "../pos/types";
+import { AdminFlavorPanel } from "./AdminFlavorPanel";
+import { AdminProductPanel } from "./AdminProductPanel";
 
 /** SOLO categorías principales (estas SÍ cambian la lista principal) */
 const MAIN_CATEGORIES: Category[] = ["Pollos", "Especialidades", "Paquetes", "Miércoles"];
+
+type View = "sales" | "admin-flavors" | "admin-products" | "cut";
 
 function money(n: number) {
   return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(n);
@@ -141,18 +144,54 @@ function printTicket(params: Parameters<typeof buildTicketHTML>[0]) {
   w.document.close();
 }
 
-export default function SalesScreen() {
+export function SalesScreen() {
+  const [view, setView] = useState<View>("sales");
   const [category, setCategory] = useState<Category>("Pollos");
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [notes, setNotes] = useState("");
+
+  // Datos de BD
+  const [dbProducts, setDbProducts] = useState<Product[]>([]);
+  const [dbFlavors, setDbFlavors] = useState<string[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [savingSale, setSavingSale] = useState(false);
+
+  // Corte
+  const getTodayCancun = () => {
+    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Cancun" }));
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  };
+
+  const [cutFrom, setCutFrom] = useState<string>(getTodayCancun());
+  const [cutTo, setCutTo] = useState<string>(getTodayCancun());
+  const [cutUseRange, setCutUseRange] = useState<boolean>(false);
+  const [cutLoading, setCutLoading] = useState(false);
+  const [cutData, setCutData] = useState<
+    | null
+    | {
+        range: { from: string; to: string };
+        totals: { grand: number; categories: Array<{ category: string; qty: number; total: number }> };
+        products: Array<{ name: string; category: string; qty: number; subtotal: number }>;
+        tickets: Array<{
+          saleId: string;
+          createdAt: string;
+          total: number;
+          notes?: string;
+          items: Array<{ name: string; qty: number; price: number; subtotal: number; category: string; flavor?: string }>;
+        }>;
+      }
+  >(null);
 
   // Pago
   const [cashReceived, setCashReceived] = useState<number>(0);
 
   // Modales
   const [flavorModal, setFlavorModal] = useState<FlavorModalState>({ open: false });
-  const [pickedFlavor, setPickedFlavor] = useState<string>(FLAVORS[0]);
+  const [pickedFlavor, setPickedFlavor] = useState<string>("");
+  
+    const isAdminView = view === "admin-flavors" || view === "admin-products";
 
   const [desModal, setDesModal] = useState<DesModalState>({ open: false });
   const [desUso, setDesUso] = useState("");
@@ -163,12 +202,51 @@ export default function SalesScreen() {
   // UX: resaltar item del ticket seleccionado
   const [selectedTicketKey, setSelectedTicketKey] = useState<string | null>(null);
 
+  // Cargar productos y sabores de la BD
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [productsRes, flavorsRes] = await Promise.all([
+          window.api.products.salesList() as { ok: boolean; products?: any[] },
+          window.api.getFlavors() as { ok: boolean; rows?: any[] },
+        ]);
+
+        console.log("Respuesta productos:", productsRes);
+        console.log("Respuesta sabores:", flavorsRes);
+
+        if (productsRes.ok && productsRes.products) {
+          const mapped: Product[] = productsRes.products.map((p) => ({
+            id: String(p.id),
+            name: p.name,
+            category: p.category as Category,
+            price: p.price,
+            requiresFlavor: p.requires_flavor === 1,
+          }));
+          console.log("Productos mapeados:", mapped);
+          setDbProducts(mapped);
+        }
+
+        if (flavorsRes?.ok && flavorsRes.rows) {
+          const names = flavorsRes.rows.map((f: any) => f.name);
+          console.log("Sabores:", names);
+          setDbFlavors(names);
+          if (names.length > 0) setPickedFlavor(names[0]);
+        }
+      } catch (err) {
+        console.error("Error cargando datos:", err);
+      } finally {
+        setLoadingData(false);
+      }
+    }
+    loadData();
+  }, []);
+
   /** 🔎 Búsqueda global: si hay query, busca en TODO el catálogo */
   const filteredCatalog = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return CATALOG;
-    return CATALOG.filter((p) => p.name.toLowerCase().includes(q));
-  }, [query]);
+    if (!q) return dbProducts;
+    return dbProducts.filter((p) => p.name.toLowerCase().includes(q));
+  }, [query, dbProducts]);
 
   /** ✅ Productos de la categoría principal */
   const productsMain = useMemo(() => {
@@ -217,7 +295,7 @@ export default function SalesScreen() {
 
     // Requiere sabor
     if (product.requiresFlavor) {
-      setPickedFlavor(FLAVORS[0]);
+      if (dbFlavors.length > 0) setPickedFlavor(dbFlavors[0]);
       setFlavorModal({ open: true, product });
       return;
     }
@@ -304,39 +382,137 @@ export default function SalesScreen() {
     setSelectedTicketKey(null);
   }
 
+  async function loadCut() {
+    setCutLoading(true);
+    try {
+      const res = await window.api.salesSummary({ from: cutFrom, to: cutUseRange ? cutTo : cutFrom });
+      console.log("salesSummary", res);
+      if (!res.ok || !res.data) {
+        alert(res.message || "Error al cargar corte");
+        return;
+      }
+      setCutData(res.data);
+    } catch (err: any) {
+      console.error(err);
+      alert("No se pudo cargar el corte");
+    } finally {
+      setCutLoading(false);
+    }
+  }
+
+  function printCut() {
+    if (!cutData) return;
+    const { range, totals, products, tickets } = cutData;
+    const rowsProducts = products
+      .map(
+        (p) =>
+          `<tr><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.category)}</td><td>${p.qty}</td><td>${money(p.subtotal)}</td></tr>`
+      )
+      .join("");
+    const rowsCats = totals.categories
+      .map((c) => `<tr><td>${escapeHtml(c.category)}</td><td>${c.qty}</td><td>${money(c.total)}</td></tr>`)
+      .join("");
+
+    const html = `<!doctype html>
+    <html><head><meta charset="utf-8"><title>Corte</title>
+    <style>
+      body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;padding:16px;color:#111}
+      h1,h2{margin:0 0 8px 0}
+      table{width:100%;border-collapse:collapse;margin:12px 0;font-size:12px}
+      th,td{border:1px solid #ddd;padding:6px;text-align:left}
+      th{background:#f3f4f6}
+      .muted{color:#555;font-size:12px}
+    </style></head><body>
+      <h1>Corte de ventas</h1>
+      <div class="muted">Del ${escapeHtml(range.from)} al ${escapeHtml(range.to)}</div>
+      <h2>Total: ${money(totals.grand)}</h2>
+
+      <h3>Totales por categoría</h3>
+      <table><thead><tr><th>Categoría</th><th>Cant.</th><th>Total</th></tr></thead><tbody>${rowsCats}</tbody></table>
+
+      <h3>Productos</h3>
+      <table><thead><tr><th>Producto</th><th>Categoría</th><th>Cant.</th><th>Total</th></tr></thead><tbody>${rowsProducts}</tbody></table>
+
+      <h3>Tickets</h3>
+      ${tickets
+        .map(
+          (t) => `
+          <div style="margin:12px 0; padding:8px; border:1px solid #ddd; border-radius:8px;">
+            <div><strong>Folio:</strong> ${escapeHtml(t.saleId)}</div>
+            <div><strong>Fecha:</strong> ${escapeHtml(t.createdAt)}</div>
+            <div><strong>Total:</strong> ${money(t.total)}</div>
+            ${t.notes ? `<div><strong>Notas:</strong> ${escapeHtml(t.notes)}</div>` : ""}
+            <table><thead><tr><th>Producto</th><th>Categoría</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr></thead><tbody>
+              ${t.items
+                .map(
+                  (i) =>
+                    `<tr><td>${escapeHtml(i.name)}${i.flavor ? " (" + escapeHtml(i.flavor) + ")" : ""}</td><td>${escapeHtml(i.category)}</td><td>${i.qty}</td><td>${money(i.price)}</td><td>${money(i.subtotal)}</td></tr>`
+                )
+                .join("")}
+            </tbody></table>
+          </div>`
+        )
+        .join("")}
+    </body></html>`;
+
+    const w = window.open("", "_blank", "width=920,height=720");
+    if (!w) {
+      alert("No se pudo abrir la ventana de impresión");
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.print();
+  }
+
   async function chargeAndSave() {
     if (cart.length === 0) return;
 
-    const saleDate = new Date().toLocaleString("es-MX");
+    setSavingSale(true);
+    try {
+      const saleDate = new Date().toLocaleString("es-MX");
 
-    const payload = {
-      items: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price })),
-      notes: notes.trim() || undefined,
-      cashReceived,
-      total,
-      change,
-    };
+      const payload = {
+        items: cart.map((i) => ({
+          name: i.name,
+          qty: i.qty,
+          price: i.price,
+          category: i.meta?.category,
+          flavor: i.meta?.flavor,
+        })),
+        notes: notes.trim() || undefined,
+        cashReceived,
+        total,
+        change,
+      };
 
-    const res = await window.api.createSale(payload);
+      const res = await window.api.createSale(payload);
 
-    if (!res.ok) {
-      alert(res.message || "Error guardando venta");
-      return;
+      if (!res.ok) {
+        alert(res.message || "Error guardando venta");
+        return;
+      }
+
+      // ✅ Imprime ticket SOLO si guardó
+      printTicket({
+        businessName: "Pollo Pirata POS",
+        date: saleDate,
+        saleId: (res as any)?.data?.id ?? (res as any)?.data?.folio ?? (res as any)?.saleId,
+        items: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price, subtotal: i.subtotal })),
+        total,
+        cashReceived,
+        change,
+        notes: notes.trim() || undefined,
+      });
+
+      clearSale();
+    } catch (err: any) {
+      console.error(err);
+      alert("No se pudo guardar la venta");
+    } finally {
+      setSavingSale(false);
     }
-
-    // ✅ Imprime ticket DESPUÉS de guardar
-    printTicket({
-      businessName: "Pollo Pirata POS",
-      date: saleDate,
-      saleId: (res as any)?.data?.id ?? (res as any)?.data?.folio ?? undefined,
-      items: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price, subtotal: i.subtotal })),
-      total,
-      cashReceived,
-      change,
-      notes: notes.trim() || undefined,
-    });
-
-    clearSale();
   }
 
   // Efectivo rápido
@@ -356,6 +532,12 @@ export default function SalesScreen() {
   useEffect(() => {
     setSelectedTicketKey(null);
   }, [category]);
+
+  useEffect(() => {
+    if (view === "cut" && !cutData) {
+      loadCut();
+    }
+  }, [view]);
 
   // Paleta blanco/gris (sin negro)
   const ui = {
@@ -402,7 +584,216 @@ export default function SalesScreen() {
   };
 
   return (
-    <div className={`min-h-screen ${ui.page} font-sans`}>
+    <>
+      {isAdminView && (
+        <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto">
+          <div className="fixed top-4 right-4 z-50 flex gap-2 items-center">
+            <div className="rounded-lg bg-white shadow-lg flex overflow-hidden text-sm font-semibold">
+              <button
+                onClick={() => setView("admin-flavors")}
+                className={`px-3 py-2 ${view === "admin-flavors" ? "bg-zinc-900 text-white" : "text-zinc-800 hover:bg-zinc-100"}`}
+              >
+                Sabores
+              </button>
+              <button
+                onClick={() => setView("admin-products")}
+                className={`px-3 py-2 ${view === "admin-products" ? "bg-zinc-900 text-white" : "text-zinc-800 hover:bg-zinc-100"}`}
+              >
+                Productos
+              </button>
+            </div>
+            <button
+              onClick={() => setView("sales")}
+              className="px-4 py-2 bg-white text-gray-900 rounded-lg shadow-lg hover:bg-gray-100 font-semibold"
+            >
+              ← Volver a Ventas
+            </button>
+          </div>
+
+          <div className="pt-16">
+            {view === "admin-flavors" ? <AdminFlavorPanel /> : <AdminProductPanel />}
+          </div>
+        </div>
+      )}
+
+      {view === "cut" && (
+        <div className={`min-h-screen ${ui.page} font-sans`}> 
+          <header className={ui.header}>
+            <div className="mx-auto max-w-[1200px] px-5 py-4 flex items-center justify-between gap-4">
+              <div>
+                <div className="text-lg font-extrabold text-zinc-900">Corte de ventas</div>
+                <div className="text-xs text-zinc-500">Selecciona rango y consulta resumen</div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setView("sales")}
+                  className="px-3 py-2 rounded-lg border border-zinc-200 bg-white text-sm font-semibold hover:bg-zinc-50"
+                >
+                  ← Volver a ventas
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="mx-auto max-w-[1200px] px-5 py-5 space-y-4">
+            <div className={ui.panel}>
+              <div className="px-4 py-3 border-b border-zinc-200 flex flex-col md:flex-row md:items-end gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-zinc-500">Desde</label>
+                  <input
+                    type="date"
+                    value={cutFrom}
+                    onChange={(e) => setCutFrom(e.target.value)}
+                    className={ui.input}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-zinc-500">Hasta</label>
+                  <input
+                    type="date"
+                    value={cutTo}
+                    onChange={(e) => setCutTo(e.target.value)}
+                    disabled={!cutUseRange}
+                    className={ui.input + (cutUseRange ? "" : " opacity-50 cursor-not-allowed")}
+                  />
+                  <label className="flex items-center gap-2 text-xs text-zinc-600">
+                    <input
+                      type="checkbox"
+                      checked={cutUseRange}
+                      onChange={(e) => setCutUseRange(e.target.checked)}
+                    />
+                    Usar rango (si no, solo un día)
+                  </label>
+                </div>
+                <div className="flex gap-2 items-end">
+                  <button onClick={loadCut} className={ui.primaryStrong} disabled={cutLoading}>
+                    {cutLoading ? "Cargando…" : "Actualizar"}
+                  </button>
+                  <button onClick={printCut} className={ui.smallBtn} disabled={!cutData}>
+                    Imprimir corte
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 space-y-4">
+                {!cutData ? (
+                  <div className="text-sm text-zinc-500">Selecciona rango y pulsa Actualizar.</div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className={ui.footerBox}>
+                        <div className="text-xs text-zinc-500">Total general</div>
+                        <div className="text-xl font-extrabold text-zinc-900">{money(cutData.totals.grand)}</div>
+                        <div className="text-[11px] text-zinc-500">{cutData.range.from} a {cutData.range.to}</div>
+                      </div>
+                      <div className={ui.footerBox}>
+                        <div className="text-xs text-zinc-500">Categorías</div>
+                        <div className="text-sm font-semibold text-zinc-800">{cutData.totals.categories.length}</div>
+                        <div className="text-[11px] text-zinc-500">Agrupadas por catálogo</div>
+                      </div>
+                      <div className={ui.footerBox}>
+                        <div className="text-xs text-zinc-500">Tickets</div>
+                        <div className="text-sm font-semibold text-zinc-800">{cutData.tickets.length}</div>
+                        <div className="text-[11px] text-zinc-500">Ventas en el rango</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <div className="rounded-2xl border border-zinc-200 bg-white">
+                        <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
+                          <div className="text-sm font-extrabold text-zinc-900">Totales por categoría</div>
+                        </div>
+                        <div className="p-3 space-y-2 max-h-[320px] overflow-auto">
+                          {cutData.totals.categories.map((c) => (
+                            <div key={c.category} className="flex items-center justify-between text-sm">
+                              <div className="font-semibold text-zinc-800">{c.category}</div>
+                              <div className="text-right">
+                                <div className="font-extrabold text-zinc-900">{money(c.total)}</div>
+                                <div className="text-[11px] text-zinc-500">{c.qty} uds</div>
+                              </div>
+                            </div>
+                          ))}
+                          {cutData.totals.categories.length === 0 && (
+                            <div className="text-xs text-zinc-500">Sin ventas en este rango.</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-zinc-200 bg-white">
+                        <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
+                          <div className="text-sm font-extrabold text-zinc-900">Productos más vendidos</div>
+                        </div>
+                        <div className="p-3 space-y-2 max-h-[320px] overflow-auto">
+                          {cutData.products.map((p) => (
+                            <div key={p.name} className="flex items-center justify-between text-sm">
+                              <div>
+                                <div className="font-semibold text-zinc-800">{p.name}</div>
+                                <div className="text-[11px] text-zinc-500">{p.category}</div>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-extrabold text-zinc-900">{money(p.subtotal)}</div>
+                                <div className="text-[11px] text-zinc-500">{p.qty} uds</div>
+                              </div>
+                            </div>
+                          ))}
+                          {cutData.products.length === 0 && (
+                            <div className="text-xs text-zinc-500">No hay productos en el rango.</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-zinc-200 bg-white">
+                      <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
+                        <div className="text-sm font-extrabold text-zinc-900">Tickets</div>
+                        <div className="text-xs text-zinc-500">{cutData.tickets.length} resultados</div>
+                      </div>
+                      <div className="p-4 space-y-3 max-h-[420px] overflow-auto">
+                        {cutData.tickets.map((t) => (
+                          <div key={t.saleId} className="rounded-xl border border-zinc-200 bg-white p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-extrabold text-zinc-900">Folio: {t.saleId}</div>
+                                <div className="text-[11px] text-zinc-500">{new Date(t.createdAt).toLocaleString("es-MX")}</div>
+                                {t.notes ? <div className="text-[11px] text-zinc-500 mt-1">Notas: {t.notes}</div> : null}
+                              </div>
+                              <div className="text-right text-sm font-extrabold text-zinc-900">{money(t.total)}</div>
+                            </div>
+
+                            <div className="mt-2 space-y-1 text-xs">
+                              {t.items.map((i, idx) => (
+                                <div
+                                  key={`${t.saleId}-${idx}`}
+                                  className="flex items-center justify-between border border-zinc-200 rounded-lg px-2 py-1"
+                                >
+                                  <div className="min-w-0">
+                                    <div className="font-semibold text-zinc-800 truncate">{i.name}</div>
+                                    <div className="text-[11px] text-zinc-500">{i.category}{i.flavor ? ` • ${i.flavor}` : ""}</div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="font-extrabold text-zinc-900">{money(i.subtotal)}</div>
+                                    <div className="text-[11px] text-zinc-500">{i.qty} x {money(i.price)}</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                        {cutData.tickets.length === 0 && (
+                          <div className="text-xs text-zinc-500">No hay tickets en el rango.</div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </main>
+        </div>
+      )}
+
+      {view === "sales" && (
+        <div className={`min-h-screen ${ui.page} font-sans`}>
       {/* TOP BAR */}
       <header className={ui.header}>
         <div className="mx-auto max-w-[1400px] px-5 py-4 flex items-center gap-4">
@@ -432,11 +823,25 @@ export default function SalesScreen() {
             </div>
           </div>
 
-          <div className="min-w-[220px] text-right">
-            <div className="text-xs text-zinc-500">Fecha y hora</div>
-            <div className="text-sm font-semibold text-zinc-700">
-              {new Date().toLocaleString("es-MX")}
+          <div className="min-w-[220px] text-right space-y-2">
+            <div>
+              <div className="text-xs text-zinc-500">Fecha y hora</div>
+              <div className="text-sm font-semibold text-zinc-700">
+                {new Date().toLocaleString("es-MX")}
+              </div>
             </div>
+            <button
+              onClick={() => setView("admin-flavors")}
+              className="block w-full px-3 py-2 text-xs font-semibold bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition"
+            >
+              ⚙️ Administración
+            </button>
+            <button
+              onClick={() => setView("cut")}
+              className="block w-full px-3 py-2 text-xs font-semibold bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition"
+            >
+              📄 Corte
+            </button>
           </div>
         </div>
       </header>
@@ -768,8 +1173,12 @@ export default function SalesScreen() {
               </div>
             </div>
 
-            <button disabled={cart.length === 0} onClick={chargeAndSave} className={ui.primary}>
-              Cobrar & Guardar (imprime ticket)
+            <button
+              disabled={cart.length === 0 || savingSale}
+              onClick={chargeAndSave}
+              className={ui.primary}
+            >
+              {savingSale ? "Guardando…" : "Cobrar & Guardar (imprime ticket)"}
             </button>
           </div>
         </aside>
@@ -785,7 +1194,7 @@ export default function SalesScreen() {
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
-              {FLAVORS.map((f) => {
+              {dbFlavors.map((f) => {
                 const active = f === pickedFlavor;
                 return (
                   <button
@@ -858,5 +1267,7 @@ export default function SalesScreen() {
         </div>
       )}
     </div>
+  )}
+    </>
   );
 }

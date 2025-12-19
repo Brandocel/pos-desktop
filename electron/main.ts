@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from "electron";
 import path from "node:path";
 import { registerSalesIpc } from "./ipc/sales.ipc";
+import { registerProductsIpc } from "./ipc/products.ipc";
 
 let win: BrowserWindow | null = null;
 
@@ -43,6 +44,7 @@ app.on("activate", () => {
 app.whenReady().then(() => {
   try {
     registerSalesIpc(); // ✅ registra IPC para SQLite
+    registerProductsIpc(); // ✅ registra IPC para Productos
     createWindow();
   } catch (err) {
     console.error("❌ Error al iniciar Electron:", err);

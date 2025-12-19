@@ -20,5 +20,23 @@ electron.contextBridge.exposeInMainWorld("ipcRenderer", {
 });
 electron.contextBridge.exposeInMainWorld("api", {
   createSale: (payload) => electron.ipcRenderer.invoke("sales:create", payload),
-  latestSales: () => electron.ipcRenderer.invoke("sales:latest")
+  latestSales: () => electron.ipcRenderer.invoke("sales:latest"),
+  salesSummary: (payload) => electron.ipcRenderer.invoke("sales:summary", payload),
+  getFlavors: () => electron.ipcRenderer.invoke("flavors:list"),
+  // ✅ Admin APIs
+  flavors: {
+    list: (payload) => electron.ipcRenderer.invoke("flavors:admin:list", payload),
+    create: (payload) => electron.ipcRenderer.invoke("flavors:create", payload),
+    delete: (payload) => electron.ipcRenderer.invoke("flavors:delete", payload),
+    restore: (payload) => electron.ipcRenderer.invoke("flavors:restore", payload)
+  },
+  products: {
+    list: (payload) => electron.ipcRenderer.invoke("products:admin:list", payload),
+    categories: () => electron.ipcRenderer.invoke("products:categories"),
+    salesList: () => electron.ipcRenderer.invoke("products:sales:list"),
+    create: (payload) => electron.ipcRenderer.invoke("products:create", payload),
+    update: (payload) => electron.ipcRenderer.invoke("products:update", payload),
+    delete: (payload) => electron.ipcRenderer.invoke("products:delete", payload),
+    restore: (payload) => electron.ipcRenderer.invoke("products:restore", payload)
+  }
 });
