@@ -150,6 +150,151 @@ function seedProducts() {
     }
   }
 }
+function safeNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+function escapeHtml(s) {
+  return (s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+}
+function moneyMXN(v) {
+  try {
+    return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(v);
+  } catch {
+    return `$${v.toFixed(2)}`;
+  }
+}
+function buildSimpleCountsFromRows(rows) {
+  const counts = {
+    paquetes: 0,
+    miercoles: 0,
+    pollo_entero: 0,
+    pollo_medio: 0,
+    pollo_cuarto: 0,
+    extras: 0,
+    desechables: 0,
+    otros: 0
+  };
+  for (const r of rows) {
+    const name = (r.item_name ?? "").toLowerCase();
+    const cat = (r.item_category ?? "").toLowerCase();
+    const qty = safeNum(r.item_qty);
+    if (cat.includes("extras")) {
+      counts.extras += qty;
+      continue;
+    }
+    if (cat.includes("desechables")) {
+      counts.desechables += qty;
+      continue;
+    }
+    if (cat.includes("paquetes")) {
+      counts.paquetes += qty;
+      continue;
+    }
+    if (cat.includes("miércoles") || cat.includes("miercoles")) {
+      counts.miercoles += qty;
+      continue;
+    }
+    if (name.includes("pollo")) {
+      if (name.includes("1/4") || name.includes("cuarto")) {
+        counts.pollo_cuarto += qty;
+        continue;
+      }
+      if (name.includes("1/2") || name.includes("medio")) {
+        counts.pollo_medio += qty;
+        continue;
+      }
+      counts.pollo_entero += qty;
+      continue;
+    }
+    counts.otros += qty;
+  }
+  return counts;
+}
+function buildCutPdfHtml(args) {
+  const { rangeLabel, from, to, totals, counts } = args;
+  const rows = [
+    ["Paquetes", counts.paquetes],
+    ["Miércoles", counts.miercoles],
+    ["Pollo Entero", counts.pollo_entero],
+    ["Pollo 1/2", counts.pollo_medio],
+    ["Pollo 1/4", counts.pollo_cuarto],
+    ["Extras", counts.extras],
+    ["Desechables", counts.desechables],
+    ["Otros", counts.otros]
+  ];
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Corte</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; padding: 22px; color: #111; }
+    .top { display:flex; justify-content:space-between; align-items:flex-start; gap: 16px; }
+    .brand { font-size: 18px; font-weight: 800; }
+    .sub { font-size: 12px; color: #555; margin-top: 4px; line-height: 1.35; }
+
+    .cards { display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
+    .card .label { font-size: 11px; color: #555; }
+    .card .value { font-size: 18px; font-weight: 800; margin-top: 6px; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    th, td { border-bottom: 1px solid #eee; padding: 10px 8px; font-size: 13px; }
+    th { text-align:left; color:#555; font-size: 11px; }
+    td:last-child, th:last-child { text-align:right; }
+    .footer { margin-top: 16px; font-size: 11px; color:#666; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div>
+      <div class="brand">Pollo Pirata POS — Corte</div>
+      <div class="sub">Rango: <b>${escapeHtml(rangeLabel)}</b></div>
+      <div class="sub">Fechas: ${escapeHtml(from)} a ${escapeHtml(to)}</div>
+      <div class="sub">Generado: ${escapeHtml((/* @__PURE__ */ new Date()).toLocaleString("es-MX"))}</div>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="label">Total vendido</div>
+      <div class="value">${escapeHtml(moneyMXN(totals.grand))}</div>
+    </div>
+    <div class="card">
+      <div class="label">Tickets</div>
+      <div class="value">${escapeHtml(String(totals.tickets))}</div>
+    </div>
+    <div class="card">
+      <div class="label">Periodo</div>
+      <div class="value">${escapeHtml(rangeLabel)}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Concepto</th>
+        <th>Cantidad</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.map(([label, val]) => `
+        <tr>
+          <td><b>${escapeHtml(String(label))}</b></td>
+          <td>${escapeHtml(String(val))}</td>
+        </tr>
+      `).join("")}
+    </tbody>
+  </table>
+
+  <div class="footer">
+    Conteo basado en categoría y/o nombre de producto (pollo 1/4, 1/2, entero).
+  </div>
+</body>
+</html>`;
+}
 function registerSalesIpc() {
   ipcMain.handle("sales:create", (_event, payload) => {
     const db2 = getDb();
@@ -158,7 +303,7 @@ function registerSalesIpc() {
     }
     const saleId = crypto.randomUUID();
     const createdAt = (/* @__PURE__ */ new Date()).toISOString();
-    const total = payload.items.reduce((acc, it) => acc + it.qty * it.price, 0);
+    const total = payload.items.reduce((acc, it) => acc + safeNum(it.qty) * safeNum(it.price), 0);
     const insertSale = db2.prepare(
       `INSERT INTO sales (id, created_at, total, notes) VALUES (?, ?, ?, ?)`
     );
@@ -170,13 +315,13 @@ function registerSalesIpc() {
       insertSale.run(saleId, createdAt, total, payload.notes ?? null);
       for (const it of payload.items) {
         const itemId = crypto.randomUUID();
-        const subtotal = it.qty * it.price;
+        const subtotal = safeNum(it.qty) * safeNum(it.price);
         insertItem.run(
           itemId,
           saleId,
           it.name,
-          it.qty,
-          it.price,
+          safeNum(it.qty),
+          safeNum(it.price),
           subtotal,
           it.category ?? "Sin categoría",
           it.flavor ?? null
@@ -196,93 +341,140 @@ function registerSalesIpc() {
     ).all();
     return { ok: true, rows };
   });
-  ipcMain.handle(
-    "sales:summary",
-    (_event, payload) => {
-      const db2 = getDb();
-      const today = /* @__PURE__ */ new Date();
-      const toISODate = (d) => d.toISOString();
-      const fromStr = payload?.from ?? today.toISOString().slice(0, 10);
-      const toStr = payload?.to ?? today.toISOString().slice(0, 10);
-      const start = /* @__PURE__ */ new Date(`${fromStr}T00:00:00.000`);
-      const end = /* @__PURE__ */ new Date(`${toStr}T23:59:59.999`);
-      const rows = db2.prepare(
-        `SELECT
-            s.id as sale_id,
-            s.created_at as created_at,
-            s.total as sale_total,
-            s.notes as sale_notes,
-            si.name as item_name,
-            si.qty as item_qty,
-            si.price as item_price,
-            si.subtotal as item_subtotal,
-            si.category as item_category,
-            si.flavor as item_flavor
-          FROM sales s
-          JOIN sale_items si ON si.sale_id = s.id
-          WHERE s.created_at BETWEEN ? AND ?
-          ORDER BY s.created_at DESC`
-      ).all(toISODate(start), toISODate(end));
-      const byTicket = /* @__PURE__ */ new Map();
-      const productsMap = /* @__PURE__ */ new Map();
-      const categories = /* @__PURE__ */ new Map();
-      let grandTotal = 0;
-      for (const row of rows) {
-        grandTotal += row.item_subtotal;
-        const category = row.item_category || "Sin categoría";
-        if (!byTicket.has(row.sale_id)) {
-          byTicket.set(row.sale_id, {
-            saleId: row.sale_id,
-            createdAt: row.created_at,
-            total: row.sale_total,
-            notes: row.sale_notes ?? void 0,
-            items: []
-          });
-        }
-        byTicket.get(row.sale_id).items.push({
-          name: row.item_name,
-          qty: row.item_qty,
-          price: row.item_price,
-          subtotal: row.item_subtotal,
-          category,
-          flavor: row.item_flavor ?? void 0
+  ipcMain.handle("sales:summary", (_event, payload) => {
+    const db2 = getDb();
+    const tzOffset = "-05:00";
+    const todayCancun = new Date(
+      (/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "America/Cancun" })
+    );
+    const pad = (n) => String(n).padStart(2, "0");
+    const formatDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const fromStr = payload?.from ?? formatDate(todayCancun);
+    const toStr = payload?.to ?? fromStr;
+    const start = /* @__PURE__ */ new Date(`${fromStr}T00:00:00.000${tzOffset}`);
+    const end = /* @__PURE__ */ new Date(`${toStr}T23:59:59.999${tzOffset}`);
+    const rows = db2.prepare(
+      `SELECT
+          s.id as sale_id,
+          s.created_at as created_at,
+          s.total as sale_total,
+          s.notes as sale_notes,
+          si.name as item_name,
+          si.qty as item_qty,
+          si.price as item_price,
+          si.subtotal as item_subtotal,
+          si.category as item_category,
+          si.flavor as item_flavor
+        FROM sales s
+        JOIN sale_items si ON si.sale_id = s.id
+        WHERE s.created_at BETWEEN ? AND ?
+        ORDER BY s.created_at DESC`
+    ).all(start.toISOString(), end.toISOString());
+    const byTicket = /* @__PURE__ */ new Map();
+    const productsMap = /* @__PURE__ */ new Map();
+    const categories = /* @__PURE__ */ new Map();
+    for (const row of rows) {
+      const category = row.item_category || "Sin categoría";
+      if (!byTicket.has(row.sale_id)) {
+        byTicket.set(row.sale_id, {
+          saleId: row.sale_id,
+          createdAt: row.created_at,
+          total: safeNum(row.sale_total),
+          notes: row.sale_notes ?? void 0,
+          items: []
         });
-        if (!productsMap.has(row.item_name)) {
-          productsMap.set(row.item_name, {
-            name: row.item_name,
-            category,
-            qty: 0,
-            subtotal: 0
-          });
-        }
-        const prod = productsMap.get(row.item_name);
-        prod.qty += row.item_qty;
-        prod.subtotal += row.item_subtotal;
-        if (!categories.has(category)) {
-          categories.set(category, { qty: 0, total: 0 });
-        }
-        const cat = categories.get(category);
-        cat.qty += row.item_qty;
-        cat.total += row.item_subtotal;
       }
-      return {
-        ok: true,
-        data: {
-          range: { from: fromStr, to: toStr },
-          totals: {
-            grand: grandTotal,
-            categories: Array.from(categories.entries()).map(([category, v]) => ({
-              category,
-              qty: v.qty,
-              total: v.total
-            }))
-          },
-          products: Array.from(productsMap.values()).sort((a, b) => b.subtotal - a.subtotal),
-          tickets: Array.from(byTicket.values())
-        }
-      };
+      byTicket.get(row.sale_id).items.push({
+        name: row.item_name,
+        qty: safeNum(row.item_qty),
+        price: safeNum(row.item_price),
+        subtotal: safeNum(row.item_subtotal),
+        category,
+        flavor: row.item_flavor ?? null
+      });
+      const key = `${row.item_name}__${category}`;
+      if (!productsMap.has(key)) {
+        productsMap.set(key, { name: row.item_name, category, qty: 0, subtotal: 0 });
+      }
+      const prod = productsMap.get(key);
+      prod.qty += safeNum(row.item_qty);
+      prod.subtotal += safeNum(row.item_subtotal);
+      if (!categories.has(category)) categories.set(category, { qty: 0, total: 0 });
+      const cat = categories.get(category);
+      cat.qty += safeNum(row.item_qty);
+      cat.total += safeNum(row.item_subtotal);
     }
-  );
+    const totalsRow = db2.prepare(
+      `SELECT COALESCE(SUM(total),0) as grand, COUNT(*) as tickets
+         FROM sales
+         WHERE created_at BETWEEN ? AND ?`
+    ).get(start.toISOString(), end.toISOString());
+    return {
+      ok: true,
+      data: {
+        range: { from: fromStr, to: toStr },
+        totals: {
+          grand: safeNum(totalsRow.grand),
+          categories: Array.from(categories.entries()).map(([category, v]) => ({
+            category,
+            qty: safeNum(v.qty),
+            total: safeNum(v.total)
+          }))
+        },
+        products: Array.from(productsMap.values()).sort((a, b) => b.subtotal - a.subtotal),
+        tickets: Array.from(byTicket.values())
+      }
+    };
+  });
+  ipcMain.handle("sales:cutPdf", async (_event, payload) => {
+    const db2 = getDb();
+    const tzOffset = "-05:00";
+    const todayCancun = new Date(
+      (/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "America/Cancun" })
+    );
+    const pad = (n) => String(n).padStart(2, "0");
+    const formatDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const fromStr = payload?.from ?? formatDate(todayCancun);
+    const toStr = payload?.to ?? fromStr;
+    const start = /* @__PURE__ */ new Date(`${fromStr}T00:00:00.000${tzOffset}`);
+    const end = /* @__PURE__ */ new Date(`${toStr}T23:59:59.999${tzOffset}`);
+    const totalsRow = db2.prepare(
+      `SELECT COALESCE(SUM(total),0) as grand, COUNT(*) as tickets
+         FROM sales
+         WHERE created_at BETWEEN ? AND ?`
+    ).get(start.toISOString(), end.toISOString());
+    const itemsRows = db2.prepare(
+      `SELECT si.name as item_name, si.qty as item_qty, si.category as item_category
+         FROM sales s
+         JOIN sale_items si ON si.sale_id = s.id
+         WHERE s.created_at BETWEEN ? AND ?`
+    ).all(start.toISOString(), end.toISOString());
+    const counts = buildSimpleCountsFromRows(itemsRows);
+    const rangeLabel = fromStr === toStr ? fromStr : `${fromStr} — ${toStr}`;
+    const html = buildCutPdfHtml({
+      rangeLabel,
+      from: fromStr,
+      to: toStr,
+      totals: { grand: safeNum(totalsRow.grand), tickets: safeNum(totalsRow.tickets) },
+      counts
+    });
+    const pdfWin = new BrowserWindow({
+      show: false,
+      webPreferences: { sandbox: true }
+    });
+    await pdfWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+    const pdfBuffer = await pdfWin.webContents.printToPDF({
+      printBackground: true,
+      pageSize: "A4",
+      margins: { top: 0.6, bottom: 0.6, left: 0.6, right: 0.6 }
+    });
+    pdfWin.destroy();
+    return {
+      ok: true,
+      base64: pdfBuffer.toString("base64"),
+      filename: `corte_${fromStr}_${toStr}.pdf`
+    };
+  });
   ipcMain.handle("flavors:list", () => {
     const db2 = getDb();
     const rows = db2.prepare("SELECT id, name FROM flavors WHERE is_deleted = 0 ORDER BY name ASC").all();
@@ -295,22 +487,14 @@ function registerSalesIpc() {
       const { page = 1, pageSize = 10, search = "", showDeleted = false } = payload;
       let whereClause = "";
       const params = [];
-      if (!showDeleted) {
-        whereClause = "WHERE is_deleted = 0";
-      }
+      if (!showDeleted) whereClause = "WHERE is_deleted = 0";
       if (search.trim()) {
         const searchTerm = `%${search.toLowerCase()}%`;
-        if (whereClause) {
-          whereClause += " AND LOWER(name) LIKE ?";
-        } else {
-          whereClause = "WHERE LOWER(name) LIKE ?";
-        }
+        whereClause = whereClause ? `${whereClause} AND LOWER(name) LIKE ?` : "WHERE LOWER(name) LIKE ?";
         params.push(searchTerm);
       }
       const countQuery = `SELECT COUNT(*) as total FROM flavors ${whereClause}`;
-      const countStmt = db2.prepare(countQuery);
-      const countResult = countStmt.all(...params)[0];
-      const total = countResult.total;
+      const total = db2.prepare(countQuery).all(...params)[0].total;
       const offset = (page - 1) * pageSize;
       const query = `
         SELECT id, name, is_deleted, created_at
@@ -319,54 +503,42 @@ function registerSalesIpc() {
         ORDER BY created_at DESC
         LIMIT ? OFFSET ?
       `;
-      const stmt = db2.prepare(query);
-      const rows = stmt.all(...params, pageSize, offset);
-      const totalPages = Math.ceil(total / pageSize);
+      const rows = db2.prepare(query).all(...params, pageSize, offset);
       return {
         ok: true,
         data: rows,
-        pagination: {
-          page,
-          pageSize,
-          total,
-          totalPages
-        }
+        pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) }
       };
     }
   );
   ipcMain.handle("flavors:create", (_event, payload) => {
     const db2 = getDb();
-    if (!payload?.name?.trim()) {
-      return { ok: false, message: "El nombre del sabor es requerido." };
-    }
+    if (!payload?.name?.trim()) return { ok: false, message: "El nombre del sabor es requerido." };
     const name = payload.name.trim();
     try {
       const id = crypto.randomUUID();
       const now = (/* @__PURE__ */ new Date()).toISOString();
-      db2.prepare(
-        "INSERT INTO flavors (id, name, is_deleted, created_at) VALUES (?, ?, ?, ?)"
-      ).run(id, name, 0, now);
+      db2.prepare("INSERT INTO flavors (id, name, is_deleted, created_at) VALUES (?, ?, ?, ?)").run(
+        id,
+        name,
+        0,
+        now
+      );
       return { ok: true, id, name };
     } catch (err) {
-      if (err?.message?.includes("UNIQUE")) {
-        return { ok: false, message: "Este sabor ya existe." };
-      }
+      if (err?.message?.includes("UNIQUE")) return { ok: false, message: "Este sabor ya existe." };
       return { ok: false, message: "Error al crear sabor." };
     }
   });
   ipcMain.handle("flavors:delete", (_event, payload) => {
     const db2 = getDb();
-    if (!payload?.id) {
-      return { ok: false, message: "ID requerido." };
-    }
+    if (!payload?.id) return { ok: false, message: "ID requerido." };
     db2.prepare("UPDATE flavors SET is_deleted = 1 WHERE id = ?").run(payload.id);
     return { ok: true };
   });
   ipcMain.handle("flavors:restore", (_event, payload) => {
     const db2 = getDb();
-    if (!payload?.id) {
-      return { ok: false, message: "ID requerido." };
-    }
+    if (!payload?.id) return { ok: false, message: "ID requerido." };
     db2.prepare("UPDATE flavors SET is_deleted = 0 WHERE id = ?").run(payload.id);
     return { ok: true };
   });
