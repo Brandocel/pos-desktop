@@ -12,6 +12,9 @@ interface Window {
   ipcRenderer: import("electron").IpcRenderer;
 
   api: {
+    products: any;
+    getFlavors(): unknown;
+    flavors: any;
     createSale: (payload: {
       items: { name: string; qty: number; price: number }[];
       notes?: string;
