@@ -200,12 +200,16 @@ function registerSalesIpc() {
     "sales:summary",
     (_event, payload) => {
       const db2 = getDb();
-      const today = /* @__PURE__ */ new Date();
-      const toISODate = (d) => d.toISOString();
-      const fromStr = payload?.from ?? today.toISOString().slice(0, 10);
-      const toStr = payload?.to ?? today.toISOString().slice(0, 10);
-      const start = /* @__PURE__ */ new Date(`${fromStr}T00:00:00.000`);
-      const end = /* @__PURE__ */ new Date(`${toStr}T23:59:59.999`);
+      const tzOffset = "-05:00";
+      const todayCancun = new Date(
+        (/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "America/Cancun" })
+      );
+      const pad = (n) => String(n).padStart(2, "0");
+      const formatDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const fromStr = payload?.from ?? formatDate(todayCancun);
+      const toStr = payload?.to ?? formatDate(todayCancun);
+      const start = /* @__PURE__ */ new Date(`${fromStr}T00:00:00.000${tzOffset}`);
+      const end = /* @__PURE__ */ new Date(`${toStr}T23:59:59.999${tzOffset}`);
       const rows = db2.prepare(
         `SELECT
             s.id as sale_id,
