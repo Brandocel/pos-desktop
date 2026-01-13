@@ -9,7 +9,6 @@ import { printTicket } from "../pos/ticket/printTicket";
 
 // ✅ Modales
 import { FlavorModal } from "../pos/modals/FlavorModal";
-import { DesechablesModal } from "../pos/modals/DesechablesModal";
 
 // ✅ Admin panels
 import { AdminFlavorPanel } from "../screens/AdminFlavorPanel";
@@ -19,16 +18,8 @@ import { SidePanel } from "../pos/components/SidePanel";
 // ✅ Corte
 import { CutScreen } from "../screens/CutScreen";
 
-// ✅ Icons (librería)
-import {
-  Settings,
-  FileText,
-  Search,
-  Trash2,
-  Minus,
-  Plus,
-  X,
-} from "lucide-react";
+// ✅ Icons
+import { Settings, FileText, Search, Trash2, Minus, Plus, X } from "lucide-react";
 
 type View = "sales" | "admin-flavors" | "admin-products" | "cut";
 type FlavorModalState = { open: boolean; product?: Product };
@@ -39,18 +30,14 @@ function normalizeMainCategory(cat: Category): Category[] {
   return [cat];
 }
 
-/** ✅ Normaliza strings que puedan venir “sucios” desde UI/BD */
 function normalizeCategoryValue(value: string): Category {
   const v = (value ?? "").trim();
-
   if (v === "Miercoles") return "Miércoles";
   if (v === "Especialidad") return "Especialidades";
   if (v === "Paquete") return "Paquetes";
-
   return v as Category;
 }
 
-/** ✅ Para el label del buscador */
 function getCategoryLabel(cat: Category) {
   const c = normalizeCategoryValue(cat);
   if (c === "Paquetes") return "Paquetes";
@@ -61,14 +48,9 @@ export function SalesScreen() {
   const ui = useUi();
 
   const [view, setView] = useState<View>("sales");
-
   const isAdminView = view === "admin-flavors" || view === "admin-products";
   const isCutView = view === "cut";
-
-  // ✅ overlay abierto (admin o corte)
   const isOverlayOpen = isAdminView || isCutView;
-
-  // ✅ mantener ventas visible detrás cuando hay overlay
   const showSalesUI = view === "sales" || isOverlayOpen;
 
   // catálogo
@@ -94,11 +76,12 @@ export function SalesScreen() {
   // Modales
   const [flavorModal, setFlavorModal] = useState<FlavorModalState>({ open: false });
   const [pickedFlavor, setPickedFlavor] = useState("");
-  const [desOpen, setDesOpen] = useState(false);
-  const [desUso, setDesUso] = useState("");
-  const [desPrecio, setDesPrecio] = useState<number>(0);
 
-  // ===== Cargar catálogo (productos + sabores)
+  // ✅ Desechables directo
+  const [desAmount, setDesAmount] = useState<number>(0);
+  const [desNote, setDesNote] = useState<string>("");
+
+  // ===== Cargar catálogo
   useEffect(() => {
     async function load() {
       try {
@@ -146,15 +129,7 @@ export function SalesScreen() {
     return filteredCatalog.filter((p) => cats.includes(p.category));
   }, [filteredCatalog, category]);
 
-  const productsExtras = useMemo(
-    () => filteredCatalog.filter((p) => p.category === "Extras"),
-    [filteredCatalog]
-  );
-
-  const productsDesechables = useMemo(
-    () => filteredCatalog.filter((p) => p.category === "Desechables"),
-    [filteredCatalog]
-  );
+  const productsExtras = useMemo(() => filteredCatalog.filter((p) => p.category === "Extras"), [filteredCatalog]);
 
   function clearSale() {
     clear();
@@ -162,18 +137,13 @@ export function SalesScreen() {
     setNotes("");
     setQuery("");
     setSelectedTicketKey(null);
+    setDesAmount(0);
+    setDesNote("");
   }
 
   function addProduct(product: Product) {
     setLastTappedProductId(product.id);
-    window.setTimeout(() => setLastTappedProductId(null), 260);
-
-    if (product.category === "Desechables") {
-      setDesUso(product.name || "");
-      setDesPrecio(product.price || 0);
-      setDesOpen(true);
-      return;
-    }
+    window.setTimeout(() => setLastTappedProductId(null), 240);
 
     if (product.requiresFlavor) {
       if (dbFlavors.length > 0) setPickedFlavor(dbFlavors[0]);
@@ -214,13 +184,17 @@ export function SalesScreen() {
     setFlavorModal({ open: false });
   }
 
-  function confirmDesechables() {
-    const uso = desUso.trim() || "Desechables";
-    const precio = Number(desPrecio) || 0;
+  // ✅ Agregar desechables directo
+  function addDesechablesDirect() {
+    const precio = Number(desAmount) || 0;
+    if (precio <= 0) return;
+
+    const note = desNote.trim();
+    const name = note ? `Desechables - ${note}` : "Desechables";
 
     upsertItem({
-      key: `des__${uso}__${precio}`,
-      name: `Desechables - ${uso}`,
+      key: `des__direct__${note || "na"}__${precio}`,
+      name,
       baseName: "Desechables",
       qty: 1,
       price: precio,
@@ -228,7 +202,8 @@ export function SalesScreen() {
       meta: { category: "Desechables" },
     });
 
-    setDesOpen(false);
+    setDesAmount(0);
+    setDesNote("");
   }
 
   async function chargeAndSave() {
@@ -274,33 +249,41 @@ export function SalesScreen() {
     setSelectedTicketKey(null);
   }, [category]);
 
+  // ✅ ESTILO CUADRADO (SIN ROUNDED / SIN RING / SIN “TARJETA SUAVE”)
+  const panelClean = "bg-white border border-zinc-300 overflow-hidden";
+  const sectionHead = "px-5 py-4 border-b border-zinc-300 flex items-center justify-between gap-3";
+  const subCard = "bg-white border border-zinc-300 overflow-hidden";
+  const btnSoft = "h-9 px-3 text-xs font-extrabold border border-zinc-300 bg-white hover:bg-zinc-100 transition";
+
+  // ✅ chips cuadrados
+  const chip = "px-2 py-1 bg-zinc-100 text-zinc-700 font-semibold text-[11px]";
+  const chipPromo = "px-2 py-1 bg-amber-100 text-amber-900 font-extrabold text-[11px]";
+
   return (
     <>
-      {/* ======================== SALES (FONDO) ======================== */}
       {showSalesUI && (
         <div
           className={[
             `min-h-screen ${ui.page} font-sans`,
-            // ✅ si hay overlay abierto, bloquea clicks en ventas (fondo)
             isOverlayOpen ? "pointer-events-none select-none" : "",
           ].join(" ")}
           aria-hidden={isOverlayOpen}
         >
           {/* TOP BAR */}
           <header className={ui.header}>
-            <div className="mx-auto max-w-[1400px] px-5 py-4 flex items-center gap-4">
-              <div className="flex items-center gap-3 min-w-[280px]">
-                <div className="h-10 w-10 rounded-xl bg-zinc-100 border border-zinc-200 flex items-center justify-center">
-                  <div className="h-2.5 w-2.5 rounded-full bg-zinc-600" />
+            <div className="mx-auto max-w-[1440px] px-6 py-4 flex items-center gap-4">
+              {/* brand */}
+              <div className="flex items-center gap-3 min-w-[260px]">
+                <div className="h-10 w-10 bg-zinc-100 border border-zinc-300 flex items-center justify-center">
+                  <div className="h-2.5 w-2.5 bg-zinc-600" />
                 </div>
                 <div className="leading-tight">
-                  <div className="text-lg font-extrabold tracking-tight text-zinc-900">
-                    Pollo Pirata POS
-                  </div>
+                  <div className="text-lg font-extrabold tracking-tight text-zinc-900">Pollo Pirata POS</div>
                   <div className="text-xs text-zinc-500">Captura rápida de ventas • sin inventario</div>
                 </div>
               </div>
 
+              {/* search */}
               <div className="flex-1">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -308,7 +291,7 @@ export function SalesScreen() {
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Buscar producto… (busca en todo)"
-                    className={ui.input + " pl-9"}
+                    className={`${ui.input} pl-9`} // ojo: si ui.input trae rounded, quítalo en useUi para que sea 100% cuadrado
                   />
                   <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">
                     {getCategoryLabel(category)}
@@ -316,41 +299,39 @@ export function SalesScreen() {
                 </div>
               </div>
 
-              <div className="min-w-[320px] flex items-center justify-between lg:justify-end gap-3">
+              {/* actions */}
+              <div className="min-w-[320px] flex items-center justify-end gap-3">
                 <div className="text-right">
                   <div className="text-xs text-zinc-500">Fecha y hora</div>
-                  <div className="text-sm font-semibold text-zinc-700">
-                    {new Date().toLocaleString("es-MX")}
-                  </div>
+                  <div className="text-sm font-semibold text-zinc-700">{new Date().toLocaleString("es-MX")}</div>
                 </div>
 
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setView("admin-flavors")}
-                    className="h-10 px-3 rounded-xl text-xs font-extrabold border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 transition inline-flex items-center gap-2"
-                    title="Administración"
-                  >
-                    <Settings className="w-4 h-4" />
-                    Admin
-                  </button>
+                <button
+                  onClick={() => setView("admin-flavors")}
+                  className="h-10 px-4 text-xs font-extrabold border border-zinc-300 bg-white hover:bg-zinc-100 transition inline-flex items-center gap-2"
+                  title="Administración"
+                >
+                  <Settings className="w-4 h-4" />
+                  Admin
+                </button>
 
-                  <button
-                    onClick={() => setView("cut")}
-                    className="h-10 px-3 rounded-xl text-xs font-extrabold border border-zinc-700 bg-zinc-700 text-white hover:bg-zinc-600 transition inline-flex items-center gap-2"
-                    title="Corte"
-                  >
-                    <FileText className="w-4 h-4" />
-                    Corte
-                  </button>
-                </div>
+                <button
+                  onClick={() => setView("cut")}
+                  className="h-10 px-4 text-xs font-extrabold border border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 transition inline-flex items-center gap-2"
+                  title="Corte"
+                >
+                  <FileText className="w-4 h-4" />
+                  Corte
+                </button>
               </div>
             </div>
           </header>
 
           {/* BODY */}
-          <main className="mx-auto max-w-[1400px] px-5 py-5 grid grid-cols-1 lg:grid-cols-[1.35fr_.85fr] gap-5">
+          <main className="mx-auto max-w-[1440px] px-6 py-6 grid grid-cols-1 lg:grid-cols-[1.32fr_.88fr] gap-6">
             {/* LEFT */}
-            <section className="space-y-4">
+            <section className="space-y-5">
+              {/* categorías */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {MAIN_CATEGORIES.map((c) => {
                   const normalizedC = normalizeCategoryValue(c);
@@ -362,19 +343,17 @@ export function SalesScreen() {
                       type="button"
                       onClick={() => setCategory(normalizedC)}
                       className={[
-                        ui.btn,
-                        active ? ui.btnActive : ui.btnIdle,
-                        "h-11 rounded-2xl px-4 text-sm font-extrabold border transition flex items-center justify-center gap-2 relative select-none",
+                        "h-11 px-4 text-sm font-extrabold transition flex items-center justify-center relative select-none border",
                         active
-                          ? "bg-zinc-700 border-zinc-700 text-white shadow-sm"
-                          : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 hover:border-zinc-300",
+                          ? "bg-zinc-900 text-white border-zinc-900"
+                          : "bg-white hover:bg-zinc-100 border-zinc-300 text-zinc-800",
                       ].join(" ")}
                       aria-pressed={active}
                     >
                       <span
                         className={[
-                          "absolute left-2 top-1/2 -translate-y-1/2 h-6 w-1.5 rounded-full transition",
-                          active ? "bg-white/70" : "bg-transparent",
+                          "absolute left-0 top-0 bottom-0 w-1.5",
+                          active ? "bg-zinc-700" : "bg-transparent",
                         ].join(" ")}
                       />
                       {c}
@@ -383,23 +362,22 @@ export function SalesScreen() {
                 })}
               </div>
 
-              <div className={ui.panel}>
-                <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200">
+              {/* productos */}
+              <div className={panelClean}>
+                <div className={sectionHead}>
                   <div>
                     <div className="text-sm font-extrabold text-zinc-900">
                       Productos • {category === "Paquetes" ? "Paquetes + Miércoles" : category}
                     </div>
-                    <div className="text-xs text-zinc-500">
-                      Toca para agregar • {productsMain.length} resultados
-                    </div>
+                    <div className="text-xs text-zinc-500">Toca para agregar • {productsMain.length} resultados</div>
                   </div>
 
-                  <button onClick={() => setQuery("")} className={ui.smallBtn}>
+                  <button onClick={() => setQuery("")} className={btnSoft}>
                     Limpiar búsqueda
                   </button>
                 </div>
 
-                <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[58vh] overflow-auto">
+                <div className="p-5 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[56vh] overflow-auto">
                   {loadingData && <div className="text-xs text-zinc-500">Cargando catálogo…</div>}
 
                   {productsMain.map((p) => {
@@ -409,16 +387,19 @@ export function SalesScreen() {
                       <button
                         key={p.id}
                         onClick={() => addProduct(p)}
-                        className={[ui.card, flash ? "ring-2 ring-zinc-400 bg-zinc-50" : ""].join(" ")}
+                        className={[
+                          "text-left bg-white border border-zinc-300 hover:bg-zinc-50 transition px-4 py-3",
+                          flash ? "border-zinc-500 bg-zinc-50" : "",
+                        ].join(" ")}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="text-sm font-extrabold leading-snug text-zinc-900">{p.name}</div>
                           <div className="text-sm font-extrabold text-zinc-800">{p.price ? money(p.price) : "—"}</div>
                         </div>
 
-                        <div className="flex flex-wrap gap-2 text-[11px]">
-                          {p.requiresFlavor ? <span className={ui.chip}>Requiere sabor</span> : null}
-                          {p.isPromoPack ? <span className={ui.chipPromo}>PROMO</span> : null}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {p.requiresFlavor ? <span className={chip}>Requiere sabor</span> : null}
+                          {p.isPromoPack ? <span className={chipPromo}>PROMO</span> : null}
                         </div>
                       </button>
                     );
@@ -426,38 +407,29 @@ export function SalesScreen() {
                 </div>
               </div>
 
-              <div className={ui.panel}>
-                <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
+              {/* extras + desechables */}
+              <div className={panelClean}>
+                <div className={sectionHead}>
                   <div>
                     <div className="text-sm font-extrabold text-zinc-900">Extras y Desechables</div>
-                    <div className="text-xs text-zinc-500">Se agregan al ticket sin cambiar categoría</div>
+                    <div className="text-xs text-zinc-500">Extras desde lista • Desechables se captura directo</div>
                   </div>
-
-                  <button
-                    onClick={() => {
-                      setDesUso("");
-                      setDesPrecio(0);
-                      setDesOpen(true);
-                    }}
-                    className={ui.primaryStrong}
-                  >
-                    + Desechables (captura)
-                  </button>
                 </div>
 
-                <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="rounded-2xl border border-zinc-200 bg-white">
-                    <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
+                <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* EXTRAS */}
+                  <div className={subCard}>
+                    <div className="px-4 py-3 border-b border-zinc-300 flex items-center justify-between">
                       <div className="text-sm font-extrabold text-zinc-900">Extras</div>
                       <div className="text-xs text-zinc-500">{productsExtras.length} items</div>
                     </div>
 
-                    <div className="p-3 grid grid-cols-1 gap-2 max-h-[220px] overflow-auto">
+                    <div className="p-3 grid grid-cols-1 gap-2 max-h-[260px] overflow-auto">
                       {productsExtras.map((p) => (
                         <button
                           key={p.id}
                           onClick={() => addProduct(p)}
-                          className="text-left rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 px-3 py-2 transition"
+                          className="text-left bg-white border border-zinc-300 hover:bg-zinc-50 px-3 py-2 transition"
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div className="font-extrabold text-sm text-zinc-900">{p.name}</div>
@@ -468,25 +440,62 @@ export function SalesScreen() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-zinc-200 bg-white">
-                    <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
-                      <div className="text-sm font-extrabold text-zinc-900">Desechables</div>
-                      <div className="text-xs text-zinc-500">{productsDesechables.length} items</div>
+                  {/* DESECHABLES DIRECTO */}
+                  <div className={subCard}>
+                    <div className="px-4 py-3 border-b border-zinc-300">
+                      <div className="text-sm font-extrabold text-zinc-900">Desechables (captura directa)</div>
+                      <div className="text-xs text-zinc-500">Ingresa el monto y agrégalo al ticket</div>
                     </div>
 
-                    <div className="p-3 grid grid-cols-1 gap-2 max-h-[220px] overflow-auto">
-                      {productsDesechables.map((p) => (
+                    <div className="p-4 space-y-3">
+                      <div>
+                        <div className="text-xs text-zinc-500 mb-1">Concepto (opcional)</div>
+                        <input
+                          value={desNote}
+                          onChange={(e) => setDesNote(e.target.value)}
+                          placeholder="Ej: bolsas / platos / vasos…"
+                          className={ui.input}
+                        />
+                      </div>
+
+                      <div>
+                        <div className="text-xs text-zinc-500 mb-1">Monto</div>
+                        <input
+                          type="number"
+                          value={desAmount}
+                          onChange={(e) => setDesAmount(Number(e.target.value))}
+                          placeholder="0"
+                          className={ui.input}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") addDesechablesDirect();
+                          }}
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-2">
                         <button
-                          key={p.id}
-                          onClick={() => addProduct(p)}
-                          className="text-left rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 px-3 py-2 transition"
+                          onClick={addDesechablesDirect}
+                          disabled={(Number(desAmount) || 0) <= 0}
+                          className="h-10 px-4 bg-zinc-900 text-white text-xs font-extrabold hover:bg-zinc-800 transition disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="font-extrabold text-sm text-zinc-900">{p.name}</div>
-                            <div className="font-extrabold text-sm text-zinc-800">{p.price ? money(p.price) : "—"}</div>
-                          </div>
+                          + Agregar
                         </button>
-                      ))}
+
+                        <button
+                          onClick={() => {
+                            setDesAmount(0);
+                            setDesNote("");
+                          }}
+                          className={btnSoft}
+                          title="Limpiar"
+                        >
+                          Limpiar
+                        </button>
+                      </div>
+
+                      <div className="text-[11px] text-zinc-500">
+                        Tip: Presiona <b>Enter</b> para agregar rápido.
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -494,8 +503,8 @@ export function SalesScreen() {
             </section>
 
             {/* RIGHT */}
-            <aside className={`${ui.panel} overflow-hidden flex flex-col`}>
-              <div className="px-4 py-4 border-b border-zinc-200 flex items-center justify-between">
+            <aside className={`${panelClean} flex flex-col`}>
+              <div className={sectionHead}>
                 <div>
                   <div className="text-sm font-extrabold tracking-tight text-zinc-900">Ticket</div>
                   <div className="text-xs text-zinc-500">Productos seleccionados</div>
@@ -504,16 +513,16 @@ export function SalesScreen() {
                 <button
                   onClick={clearSale}
                   disabled={cart.length === 0}
-                  className={`${ui.smallBtn} disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2`}
+                  className="h-9 px-3 text-xs font-extrabold border border-zinc-300 bg-white hover:bg-zinc-100 transition disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
                 >
                   <Trash2 className="w-4 h-4" />
                   Vaciar
                 </button>
               </div>
 
-              <div className="p-4 flex-1 overflow-auto">
+              <div className="p-5 flex-1 overflow-auto">
                 {cart.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center">
+                  <div className="bg-zinc-50 border border-zinc-300 p-7 text-center">
                     <div className="text-base font-extrabold text-zinc-900">Sin productos</div>
                     <div className="text-sm text-zinc-500 mt-1">Selecciona un producto para agregarlo</div>
                   </div>
@@ -527,8 +536,8 @@ export function SalesScreen() {
                           key={item.key}
                           onClick={() => setSelectedTicketKey(item.key)}
                           className={[
-                            ui.ticketItem,
-                            selected ? "ring-2 ring-zinc-300 bg-zinc-50 border-zinc-300" : "",
+                            "bg-white border border-zinc-300 px-4 py-3 cursor-pointer transition",
+                            selected ? "bg-zinc-50 border-zinc-500" : "hover:bg-zinc-50",
                           ].join(" ")}
                           role="button"
                           tabIndex={0}
@@ -537,13 +546,13 @@ export function SalesScreen() {
                             <div className="min-w-0">
                               <div className="font-extrabold text-sm truncate text-zinc-900">{item.name}</div>
 
-                              <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
+                              <div className="mt-1 flex flex-wrap gap-2">
                                 {item.meta?.flavor ? (
-                                  <span className={ui.chip}>
+                                  <span className={chip}>
                                     Sabor: <b>{item.meta.flavor}</b>
                                   </span>
                                 ) : null}
-                                {item.meta?.promo ? <span className={ui.chipPromo}>PROMO</span> : null}
+                                {item.meta?.promo ? <span className={chipPromo}>PROMO</span> : null}
                               </div>
                             </div>
 
@@ -554,7 +563,7 @@ export function SalesScreen() {
                                   e.stopPropagation();
                                   remove(item.key);
                                 }}
-                                className={ui.ghostBtn + " inline-flex items-center gap-1"}
+                                className="mt-1 inline-flex items-center gap-1 text-xs font-extrabold text-zinc-700 hover:text-zinc-900"
                               >
                                 <X className="w-4 h-4" />
                                 Quitar
@@ -569,7 +578,7 @@ export function SalesScreen() {
                                   e.stopPropagation();
                                   dec(item.key);
                                 }}
-                                className={ui.qtyBtn}
+                                className="h-9 w-9 bg-white border border-zinc-300 hover:bg-zinc-100 grid place-items-center"
                                 aria-label="Disminuir"
                               >
                                 <Minus className="w-4 h-4" />
@@ -582,7 +591,7 @@ export function SalesScreen() {
                                   e.stopPropagation();
                                   inc(item.key);
                                 }}
-                                className={ui.qtyBtn}
+                                className="h-9 w-9 bg-white border border-zinc-300 hover:bg-zinc-100 grid place-items-center"
                                 aria-label="Aumentar"
                               >
                                 <Plus className="w-4 h-4" />
@@ -600,7 +609,7 @@ export function SalesScreen() {
                 )}
               </div>
 
-              <div className="p-4 border-t border-zinc-200 space-y-4 bg-white">
+              <div className="p-5 border-t border-zinc-300 space-y-4 bg-white">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-semibold text-zinc-600">Total</div>
                   <div className="text-xl font-extrabold tracking-tight text-zinc-900">{money(total)}</div>
@@ -629,7 +638,7 @@ export function SalesScreen() {
                     </div>
                   </div>
 
-                  <div className={`${ui.footerBox} flex items-center justify-between`}>
+                  <div className="bg-zinc-50 border border-zinc-300 px-4 py-3 flex items-center justify-between">
                     <div className="text-xs text-zinc-500">Cambio</div>
                     <div className="text-sm font-extrabold text-zinc-800">{money(change)}</div>
                   </div>
@@ -652,7 +661,7 @@ export function SalesScreen() {
             </aside>
           </main>
 
-          {/* MODALES */}
+          {/* MODAL SABOR */}
           <FlavorModal
             open={flavorModal.open}
             ui={ui}
@@ -663,21 +672,10 @@ export function SalesScreen() {
             onClose={() => setFlavorModal({ open: false })}
             onConfirm={confirmFlavor}
           />
-
-          <DesechablesModal
-            open={desOpen}
-            ui={ui}
-            uso={desUso}
-            precio={desPrecio}
-            onUso={setDesUso}
-            onPrecio={setDesPrecio}
-            onClose={() => setDesOpen(false)}
-            onConfirm={confirmDesechables}
-          />
         </div>
       )}
 
-      {/* ======================== ADMIN SIDE PANEL ======================== */}
+      {/* ADMIN SIDE PANEL */}
       <SidePanel
         open={isAdminView}
         onClose={() => setView("sales")}
@@ -685,16 +683,15 @@ export function SalesScreen() {
         subtitle="Sabores y productos"
         widthClassName="w-[820px] max-w-[95vw]"
         headerRight={
-          <div className="inline-flex items-center p-1 rounded-xl border border-zinc-200 bg-zinc-50">
+          <div className="inline-flex items-center p-1 border border-zinc-300 bg-zinc-50">
             <button
               type="button"
               onClick={() => setView("admin-flavors")}
               className={[
-                "h-9 px-4 rounded-lg text-xs font-extrabold whitespace-nowrap transition",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300",
+                "h-9 px-4 text-xs font-extrabold whitespace-nowrap transition border",
                 view === "admin-flavors"
-                  ? "bg-zinc-700 text-white shadow-sm"
-                  : "text-zinc-800 hover:bg-white",
+                  ? "bg-zinc-900 text-white border-zinc-900"
+                  : "bg-white border-zinc-300 text-zinc-800 hover:bg-zinc-100",
               ].join(" ")}
             >
               Sabores
@@ -704,11 +701,10 @@ export function SalesScreen() {
               type="button"
               onClick={() => setView("admin-products")}
               className={[
-                "h-9 px-4 rounded-lg text-xs font-extrabold whitespace-nowrap transition",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300",
+                "h-9 px-4 text-xs font-extrabold whitespace-nowrap transition border -ml-px",
                 view === "admin-products"
-                  ? "bg-zinc-700 text-white shadow-sm"
-                  : "text-zinc-800 hover:bg-white",
+                  ? "bg-zinc-900 text-white border-zinc-900"
+                  : "bg-white border-zinc-300 text-zinc-800 hover:bg-zinc-100",
               ].join(" ")}
             >
               Productos
@@ -719,7 +715,7 @@ export function SalesScreen() {
         <div className="p-4">{view === "admin-flavors" ? <AdminFlavorPanel /> : <AdminProductPanel />}</div>
       </SidePanel>
 
-      {/* ======================== CUT SIDE PANEL (IGUAL QUE ADMIN) ======================== */}
+      {/* CUT SIDE PANEL */}
       <SidePanel
         open={isCutView}
         onClose={() => setView("sales")}
@@ -728,8 +724,6 @@ export function SalesScreen() {
         widthClassName="w-[980px] max-w-[95vw]"
       >
         <div className="p-0">
-          {/* CutScreen ya tiene su header, pero aquí lo estamos metiendo dentro del panel.
-              Si quieres, te lo adapto a versión "CutPanel" sin header duplicado. */}
           <CutScreen onBack={() => setView("sales")} />
         </div>
       </SidePanel>

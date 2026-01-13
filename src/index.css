@@ -156,3 +156,9 @@
     color: rgb(var(--muted));
   }
 }
+
+/* ✅ MODO CUADRADO: quita redondeos globales */
+.no-round,
+.no-round * {
+  border-radius: 0 !important;
+}
