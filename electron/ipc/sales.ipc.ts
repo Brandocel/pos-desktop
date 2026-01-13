@@ -1,6 +1,7 @@
 // electron/ipc/sales.ipc.ts
 import { ipcMain, BrowserWindow } from "electron";
 import { getDb } from "../db";
+import { packageIncludes } from "../db/schema";
 import crypto from "crypto";
 
 type SaleItemInput = {
@@ -13,6 +14,7 @@ type SaleItemInput = {
 
 type CreateSaleInput = {
   items: SaleItemInput[];
+  paymentMethod: 'cash' | 'card';
   notes?: string;
   cashReceived?: number;
   change?: number;
@@ -32,6 +34,12 @@ function escapeHtml(s: string) {
     .replaceAll("'", "&#039;");
 }
 
+// Obtener los extras asociados a un paquete/especialidad por nombre
+function getPackageExtras(db: any, packageName: string): Array<{ name: string; qty: number }> {
+  const pkg = packageIncludes.find(p => p.packageName === packageName);
+  return pkg?.extras ?? [];
+}
+
 function moneyMXN(v: number) {
   try {
     return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(v);
@@ -40,16 +48,24 @@ function moneyMXN(v: number) {
   }
 }
 
-// ✅ Conteo simple por categoría y/o por nombre
+// ✅ Conteo detallado por categoría y tipo de pollo
 function buildSimpleCountsFromRows(
   rows: Array<{ item_name: string; item_qty: number; item_category?: string }>
 ) {
   const counts = {
+    // Productos vendidos (paquetes, especialidades, miércoles, pollos individuales)
     paquetes: 0,
+    especialidades: 0,
     miercoles: 0,
+    pollos_individuales: 0,
+    
+    // Desglose de pollos (total + por tipo)
+    pollo_total: 0,
     pollo_entero: 0,
     pollo_medio: 0,
     pollo_cuarto: 0,
+    
+    // Otros
     extras: 0,
     desechables: 0,
     otros: 0,
@@ -60,7 +76,35 @@ function buildSimpleCountsFromRows(
     const cat = (r.item_category ?? "").toLowerCase();
     const qty = safeNum(r.item_qty);
 
-    // Categorías directas (si existen)
+    // Ignorar "Incluido en paquete" (ya contado en paquetes/especialidades/miércoles)
+    if (cat.includes("incluido")) {
+      // Pero sí contabilizar los pollos
+      if (name.includes("pollo")) {
+        if (name.includes("1/4")) {
+          counts.pollo_cuarto += qty;
+        } else if (name.includes("1/2")) {
+          counts.pollo_medio += qty;
+        } else {
+          counts.pollo_entero += qty;
+        }
+        counts.pollo_total += qty;
+      }
+      continue;
+    }
+
+    // Categorías directas
+    if (cat.includes("paquetes")) {
+      counts.paquetes += qty;
+      continue;
+    }
+    if (cat.includes("especialidades")) {
+      counts.especialidades += qty;
+      continue;
+    }
+    if (cat.includes("miércoles") || cat.includes("miercoles")) {
+      counts.miercoles += qty;
+      continue;
+    }
     if (cat.includes("extras")) {
       counts.extras += qty;
       continue;
@@ -69,27 +113,18 @@ function buildSimpleCountsFromRows(
       counts.desechables += qty;
       continue;
     }
-    if (cat.includes("paquetes")) {
-      counts.paquetes += qty;
-      continue;
-    }
-    if (cat.includes("miércoles") || cat.includes("miercoles")) {
-      counts.miercoles += qty;
-      continue;
-    }
 
-    // Pollos por nombre
+    // Pollos por nombre (pollos individuales)
     if (name.includes("pollo")) {
-      if (name.includes("1/4") || name.includes("cuarto")) {
+      if (name.includes("1/4")) {
         counts.pollo_cuarto += qty;
-        continue;
-      }
-      if (name.includes("1/2") || name.includes("medio")) {
+      } else if (name.includes("1/2")) {
         counts.pollo_medio += qty;
-        continue;
+      } else {
+        counts.pollo_entero += qty;
       }
-      // default: entero
-      counts.pollo_entero += qty;
+      counts.pollo_total += qty;
+      counts.pollos_individuales += qty;
       continue;
     }
 
@@ -103,20 +138,31 @@ function buildCutPdfHtml(args: {
   rangeLabel: string;
   from: string;
   to: string;
-  totals: { grand: number; tickets: number };
+  totals: { grand: number; tickets: number; cash: number; card: number };
   counts: ReturnType<typeof buildSimpleCountsFromRows>;
 }) {
   const { rangeLabel, from, to, totals, counts } = args;
 
-  const rows = [
-    ["Paquetes", counts.paquetes],
-    ["Miércoles", counts.miercoles],
-    ["Pollo Entero", counts.pollo_entero],
-    ["Pollo 1/2", counts.pollo_medio],
-    ["Pollo 1/4", counts.pollo_cuarto],
+  // Tabla de productos vendidos
+  const productRows = [
+    ["Paquetes vendidos", counts.paquetes],
+    ["Especialidades vendidas", counts.especialidades],
+    ["Miércoles vendidos", counts.miercoles],
+    ["Pollos individuales vendidos", counts.pollos_individuales],
+  ];
+
+  // Tabla de pollos totales
+  const polloRows = [
+    ["Total Pollos (equivalente en piezas)", counts.pollo_total],
+    ["  └─ Enteros (1 pollo)", counts.pollo_entero],
+    ["  └─ Medios (1/2 pollo)", counts.pollo_medio],
+    ["  └─ Cuartos (1/4 pollo)", counts.pollo_cuarto],
+  ];
+
+  // Tabla de otros items
+  const otherRows = [
     ["Extras", counts.extras],
     ["Desechables", counts.desechables],
-    ["Otros", counts.otros],
   ];
 
   return `<!doctype html>
@@ -131,15 +177,21 @@ function buildCutPdfHtml(args: {
     .brand { font-size: 18px; font-weight: 800; }
     .sub { font-size: 12px; color: #555; margin-top: 4px; line-height: 1.35; }
 
-    .cards { display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+    .cards { display:grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 14px; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
     .card .label { font-size: 11px; color: #555; }
     .card .value { font-size: 18px; font-weight: 800; margin-top: 6px; }
 
-    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    .section { margin-top: 20px; }
+    .section-title { font-size: 13px; font-weight: 800; color: #333; margin-bottom: 8px; border-bottom: 2px solid #ddd; padding-bottom: 4px; }
+
+    table { width: 100%; border-collapse: collapse; }
     th, td { border-bottom: 1px solid #eee; padding: 10px 8px; font-size: 13px; }
-    th { text-align:left; color:#555; font-size: 11px; }
+    th { text-align:left; color:#555; font-size: 11px; background: #f9f9f9; }
     td:last-child, th:last-child { text-align:right; }
+    tr.indent td { padding-left: 24px; font-size: 12px; color: #666; }
+    tr.total td { font-weight: 800; background: #f0f0f0; }
+
     .footer { margin-top: 16px; font-size: 11px; color:#666; }
   </style>
 </head>
@@ -159,34 +211,92 @@ function buildCutPdfHtml(args: {
       <div class="value">${escapeHtml(moneyMXN(totals.grand))}</div>
     </div>
     <div class="card">
+      <div class="label">Efectivo</div>
+      <div class="value">${escapeHtml(moneyMXN(totals.cash))}</div>
+    </div>
+    <div class="card">
+      <div class="label">Tarjeta</div>
+      <div class="value">${escapeHtml(moneyMXN(totals.card))}</div>
+    </div>
+    <div class="card">
       <div class="label">Tickets</div>
       <div class="value">${escapeHtml(String(totals.tickets))}</div>
     </div>
     <div class="card">
-      <div class="label">Periodo</div>
-      <div class="value">${escapeHtml(rangeLabel)}</div>
+      <div class="label">Pollos (piezas)</div>
+      <div class="value">${escapeHtml(String(counts.pollo_total))}</div>
     </div>
   </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Concepto</th>
-        <th>Cantidad</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rows.map(([label, val]) => `
+  <!-- PRODUCTOS VENDIDOS -->
+  <div class="section">
+    <div class="section-title">📦 Productos Vendidos</div>
+    <table>
+      <thead>
         <tr>
-          <td><b>${escapeHtml(String(label))}</b></td>
+          <th>Concepto</th>
+          <th>Cantidad</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${productRows.map(([label, val]) => `
+        <tr>
+          <td>${escapeHtml(String(label))}</td>
           <td>${escapeHtml(String(val))}</td>
         </tr>
-      `).join("")}
-    </tbody>
-  </table>
+        `).join("")}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- DESGLOSE DE POLLOS -->
+  <div class="section">
+    <div class="section-title">🍗 Consumo de Pollos (Total: ${counts.pollo_total} piezas)</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Tipo</th>
+          <th>Cantidad</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="total">
+          <td><b>TOTAL POLLOS</b></td>
+          <td><b>${escapeHtml(String(counts.pollo_total))}</b></td>
+        </tr>
+        ${polloRows.slice(1).map(([label, val]) => `
+        <tr class="indent">
+          <td>${escapeHtml(String(label))}</td>
+          <td>${escapeHtml(String(val))}</td>
+        </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- OTROS ITEMS -->
+  <div class="section">
+    <div class="section-title">📋 Otros Items</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Concepto</th>
+          <th>Cantidad</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${otherRows.map(([label, val]) => `
+        <tr>
+          <td>${escapeHtml(String(label))}</td>
+          <td>${escapeHtml(String(val))}</td>
+        </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  </div>
 
   <div class="footer">
-    Conteo basado en categoría y/o nombre de producto (pollo 1/4, 1/2, entero).
+    Conteo basado en categoría y nombre de producto. Pollos incluidos en paquetes, especialidades y miércoles están agregados en el total.
   </div>
 </body>
 </html>`;
@@ -204,9 +314,10 @@ export function registerSalesIpc() {
     const saleId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     const total = payload.items.reduce((acc, it) => acc + safeNum(it.qty) * safeNum(it.price), 0);
+    const paymentMethod = payload.paymentMethod || 'cash';
 
     const insertSale = db.prepare(
-      `INSERT INTO sales (id, created_at, total, notes) VALUES (?, ?, ?, ?)`
+      `INSERT INTO sales (id, created_at, total, payment_method, notes) VALUES (?, ?, ?, ?, ?)`
     );
 
     const insertItem = db.prepare(
@@ -215,7 +326,7 @@ export function registerSalesIpc() {
     );
 
     const tx = db.transaction(() => {
-      insertSale.run(saleId, createdAt, total, payload.notes ?? null);
+      insertSale.run(saleId, createdAt, total, paymentMethod, payload.notes ?? null);
 
       for (const it of payload.items) {
         const itemId = crypto.randomUUID();
@@ -231,6 +342,26 @@ export function registerSalesIpc() {
           it.category ?? "Sin categoría",
           it.flavor ?? null
         );
+
+        // ✅ Si es un paquete o especialidad, agregar sus extras incluidos (precio 0)
+        if ((it.category === "Paquetes" || it.category === "Especialidades" || it.category === "Miércoles") && it.qty > 0) {
+          const extras = getPackageExtras(db, it.name);
+          for (const extra of extras) {
+            const extraId = crypto.randomUUID();
+            // Multiplicar la cantidad: si Paquete Especial (qty 1) incluye "1 pollo" qty 2, insertar qty 1*2=2
+            const extraQty = safeNum(it.qty) * safeNum(extra.qty);
+            insertItem.run(
+              extraId,
+              saleId,
+              extra.name,
+              extraQty,
+              0, // Precio 0 porque está incluido
+              0, // Subtotal 0
+              "Incluido en paquete", // Categoría especial
+              it.flavor ?? null // Mantiene el sabor si aplica
+            );
+          }
+        }
       }
     });
 
@@ -279,6 +410,7 @@ export function registerSalesIpc() {
           s.id as sale_id,
           s.created_at as created_at,
           s.total as sale_total,
+          s.payment_method as payment_method,
           s.notes as sale_notes,
           si.name as item_name,
           si.qty as item_qty,
@@ -295,6 +427,7 @@ export function registerSalesIpc() {
       sale_id: string;
       created_at: string;
       sale_total: number;
+      payment_method: string;
       sale_notes?: string;
       item_name: string;
       item_qty: number;
@@ -323,17 +456,32 @@ export function registerSalesIpc() {
       }
     >();
 
-    // Products aggregate
+    // Products aggregate (ignora extras incluidos gratis)
     const productsMap = new Map<
       string,
       { name: string; category: string; qty: number; subtotal: number }
     >();
 
-    // Categories aggregate
+    // Categories aggregate (ignora extras incluidos gratis)
     const categories = new Map<string, { qty: number; total: number }>();
+
+    // Conteo de pollos totales (incluye incluidos en paquetes/especialidades/miércoles)
+    const polloTotals = { enteros: 0, medios: 0, cuartos: 0 };
 
     for (const row of rows) {
       const category = row.item_category || "Sin categoría";
+      const nameLower = (row.item_name || "").toLowerCase();
+
+      // Conteo de pollos totales (incluye incluidos)
+      if (nameLower.includes("pollo")) {
+        if (nameLower.includes("1/4")) {
+          polloTotals.cuartos += safeNum(row.item_qty);
+        } else if (nameLower.includes("1/2")) {
+          polloTotals.medios += safeNum(row.item_qty);
+        } else {
+          polloTotals.enteros += safeNum(row.item_qty);
+        }
+      }
 
       // ticket
       if (!byTicket.has(row.sale_id)) {
@@ -355,30 +503,44 @@ export function registerSalesIpc() {
         flavor: row.item_flavor ?? null,
       });
 
-      // product
-      const key = `${row.item_name}__${category}`;
-      if (!productsMap.has(key)) {
-        productsMap.set(key, { name: row.item_name, category, qty: 0, subtotal: 0 });
-      }
-      const prod = productsMap.get(key)!;
-      prod.qty += safeNum(row.item_qty);
-      prod.subtotal += safeNum(row.item_subtotal);
+      // Si es "Incluido en paquete" y precio 0, no contar en productos/categorías (extras gratis)
+      const isIncludedFree = category.toLowerCase().includes("incluido") && safeNum(row.item_price) === 0;
 
-      // category
-      if (!categories.has(category)) categories.set(category, { qty: 0, total: 0 });
-      const cat = categories.get(category)!;
-      cat.qty += safeNum(row.item_qty);
-      cat.total += safeNum(row.item_subtotal);
+      if (!isIncludedFree) {
+        // product
+        const key = `${row.item_name}__${category}`;
+        if (!productsMap.has(key)) {
+          productsMap.set(key, { name: row.item_name, category, qty: 0, subtotal: 0 });
+        }
+        const prod = productsMap.get(key)!;
+        prod.qty += safeNum(row.item_qty);
+        prod.subtotal += safeNum(row.item_subtotal);
+
+        // category
+        if (!categories.has(category)) categories.set(category, { qty: 0, total: 0 });
+        const cat = categories.get(category)!;
+        cat.qty += safeNum(row.item_qty);
+        cat.total += safeNum(row.item_subtotal);
+      }
     }
 
     // Total general desde tabla sales (más confiable)
     const totalsRow = db
       .prepare(
-        `SELECT COALESCE(SUM(total),0) as grand, COUNT(*) as tickets
+        `SELECT 
+          COALESCE(SUM(total),0) as grand, 
+          COUNT(*) as tickets,
+          COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN total ELSE 0 END), 0) as cash_total,
+          COALESCE(SUM(CASE WHEN payment_method = 'card' THEN total ELSE 0 END), 0) as card_total
          FROM sales
          WHERE created_at BETWEEN ? AND ?`
       )
-      .get(start.toISOString(), end.toISOString()) as { grand: number; tickets: number };
+      .get(start.toISOString(), end.toISOString()) as { 
+        grand: number; 
+        tickets: number;
+        cash_total: number;
+        card_total: number;
+      };
 
     return {
       ok: true,
@@ -386,11 +548,19 @@ export function registerSalesIpc() {
         range: { from: fromStr, to: toStr },
         totals: {
           grand: safeNum(totalsRow.grand),
+          cash: safeNum(totalsRow.cash_total),
+          card: safeNum(totalsRow.card_total),
           categories: Array.from(categories.entries()).map(([category, v]) => ({
             category,
             qty: safeNum(v.qty),
             total: safeNum(v.total),
           })),
+          polloTotals: {
+            enteros: safeNum(polloTotals.enteros),
+            medios: safeNum(polloTotals.medios),
+            cuartos: safeNum(polloTotals.cuartos),
+            total: safeNum(polloTotals.enteros + polloTotals.medios + polloTotals.cuartos),
+          },
         },
         products: Array.from(productsMap.values()).sort((a, b) => b.subtotal - a.subtotal),
         tickets: Array.from(byTicket.values()),
@@ -419,11 +589,20 @@ export function registerSalesIpc() {
     // Totales
     const totalsRow = db
       .prepare(
-        `SELECT COALESCE(SUM(total),0) as grand, COUNT(*) as tickets
+        `SELECT 
+          COALESCE(SUM(total),0) as grand, 
+          COUNT(*) as tickets,
+          COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN total ELSE 0 END), 0) as cash_total,
+          COALESCE(SUM(CASE WHEN payment_method = 'card' THEN total ELSE 0 END), 0) as card_total
          FROM sales
          WHERE created_at BETWEEN ? AND ?`
       )
-      .get(start.toISOString(), end.toISOString()) as { grand: number; tickets: number };
+      .get(start.toISOString(), end.toISOString()) as { 
+        grand: number; 
+        tickets: number;
+        cash_total: number;
+        card_total: number;
+      };
 
     // Rows para conteos
     const itemsRows = db
@@ -446,7 +625,12 @@ export function registerSalesIpc() {
       rangeLabel,
       from: fromStr,
       to: toStr,
-      totals: { grand: safeNum(totalsRow.grand), tickets: safeNum(totalsRow.tickets) },
+      totals: { 
+        grand: safeNum(totalsRow.grand), 
+        tickets: safeNum(totalsRow.tickets),
+        cash: safeNum(totalsRow.cash_total),
+        card: safeNum(totalsRow.card_total)
+      },
       counts,
     });
 

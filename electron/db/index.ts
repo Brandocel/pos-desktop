@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import path from "node:path";
 import { app } from "electron";
-import { schemaSQL, initialFlavors, initialProducts } from "./schema";
+import { schemaSQL, initialFlavors, initialProducts, packageIncludes } from "./schema";
 import crypto from "crypto";
 
 let db: Database.Database | null = null;
@@ -17,11 +17,14 @@ export function getDb() {
   db.exec(schemaSQL);
 
   migrateSaleItems();
+  migrateSales();
 
   // Insertar sabores iniciales si no existen
   seedFlavors();
   // Insertar productos iniciales si no existen
   seedProducts();
+  // Asociar extras a paquetes
+  seedPackageIncludes();
 
   return db;
 }
@@ -70,6 +73,22 @@ function migrateSaleItems() {
   }
 }
 
+// Migración para agregar payment_method a sales
+function migrateSales() {
+  if (!db) return;
+  const cols = db.prepare("PRAGMA table_info(sales);").all() as Array<{ name: string }>;
+  const hasPaymentMethod = cols.some((c) => c.name === "payment_method");
+
+  if (!hasPaymentMethod) {
+    try {
+      db.prepare("ALTER TABLE sales ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'cash'").run();
+      console.log("✅ Migración: columna payment_method agregada a sales");
+    } catch (err) {
+      console.warn("Migración sales omitida:", err);
+    }
+  }
+}
+
 function seedProducts() {
   if (!db) return;
 
@@ -97,3 +116,49 @@ function seedProducts() {
     }
   }
 }
+
+// Asociar extras a paquetes
+function seedPackageIncludes() {
+  if (!db) return;
+
+  // Verificar si ya existen asociaciones
+  const countAssocs = db
+    .prepare("SELECT COUNT(*) as count FROM product_included_extras")
+    .get() as { count: number };
+
+  if (countAssocs.count > 0) return; // Ya existen, no hacer nada
+
+  const insertAssoc = db.prepare(
+    "INSERT INTO product_included_extras (id, product_id, extra_id) VALUES (?, ?, ?)"
+  );
+
+  for (const pkg of packageIncludes) {
+    // Obtener ID del paquete (buscar también en Especialidades y Miércoles)
+    const packageRow = db
+      .prepare("SELECT id FROM products WHERE name = ? AND is_deleted = 0")
+      .get(pkg.packageName) as { id: string } | undefined;
+
+    if (!packageRow) continue;
+
+    // Obtener IDs de los extras (pkg.extras ahora es array de { name, qty })
+    for (const extra of pkg.extras) {
+      const extraName = extra.name;
+      const extraRow = db
+        .prepare("SELECT id FROM products WHERE name = ? AND is_deleted = 0")
+        .get(extraName) as { id: string } | undefined;
+
+      if (!extraRow) continue;
+
+      // Crear asociación
+      try {
+        const assocId = crypto.randomUUID();
+        insertAssoc.run(assocId, packageRow.id, extraRow.id);
+      } catch (err) {
+        console.warn(`No se pudo asociar ${extraName} a ${pkg.packageName}:`, err);
+      }
+    }
+  }
+
+  console.log("✅ Paquetes y extras asociados correctamente");
+}
+

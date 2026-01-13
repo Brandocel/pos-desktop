@@ -2,6 +2,7 @@
 
 export interface CreateSalePayload {
   items: { name: string; qty: number; price: number }[];
+  paymentMethod: 'cash' | 'card';
   notes?: string;
 }
 

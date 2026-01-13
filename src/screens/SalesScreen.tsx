@@ -65,6 +65,7 @@ export function SalesScreen() {
 
   // pago
   const [notes, setNotes] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [cashReceived, setCashReceived] = useState(0);
   const change = useMemo(() => Math.max(0, cashReceived - total), [cashReceived, total]);
   const quickCash = useQuickCash(total);
@@ -134,6 +135,7 @@ export function SalesScreen() {
   function clearSale() {
     clear();
     setCashReceived(0);
+    setPaymentMethod('cash');
     setNotes("");
     setQuery("");
     setSelectedTicketKey(null);
@@ -217,6 +219,7 @@ export function SalesScreen() {
         category: i.meta?.category,
         flavor: i.meta?.flavor,
       })),
+      paymentMethod,
       notes: notes.trim() || undefined,
       cashReceived,
       total,
@@ -616,32 +619,68 @@ export function SalesScreen() {
                 </div>
 
                 <div className="grid grid-cols-1 gap-3">
+                  {/* MÉTODO DE PAGO */}
                   <div>
-                    <div className="text-xs text-zinc-500 mb-1">Efectivo recibido</div>
-                    <input
-                      type="number"
-                      value={cashReceived}
-                      onChange={(e) => setCashReceived(Number(e.target.value))}
-                      placeholder="0"
-                      className={ui.input}
-                    />
-
-                    <div className="mt-2 grid grid-cols-3 gap-2">
-                      {quickCash.map((v) => (
-                        <button key={v} onClick={() => setCashReceived(v)} className={ui.primaryStrong}>
-                          {money(v)}
-                        </button>
-                      ))}
-                      <button onClick={() => setCashReceived(total)} className={ui.primaryStrong} disabled={total <= 0}>
-                        Exacto
+                    <div className="text-xs text-zinc-500 mb-2">Método de pago</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMethod('cash')}
+                        className={[
+                          "h-11 px-4 rounded-xl text-sm font-extrabold border transition flex items-center justify-center gap-2",
+                          paymentMethod === 'cash'
+                            ? "bg-zinc-700 border-zinc-700 text-white shadow-sm"
+                            : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                        ].join(" ")}
+                      >
+                        💵 Efectivo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMethod('card')}
+                        className={[
+                          "h-11 px-4 rounded-xl text-sm font-extrabold border transition flex items-center justify-center gap-2",
+                          paymentMethod === 'card'
+                            ? "bg-zinc-700 border-zinc-700 text-white shadow-sm"
+                            : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                        ].join(" ")}
+                      >
+                        💳 Tarjeta
                       </button>
                     </div>
                   </div>
 
-                  <div className="bg-zinc-50 border border-zinc-300 px-4 py-3 flex items-center justify-between">
-                    <div className="text-xs text-zinc-500">Cambio</div>
-                    <div className="text-sm font-extrabold text-zinc-800">{money(change)}</div>
-                  </div>
+                  {/* EFECTIVO RECIBIDO (solo si es efectivo) */}
+                  {paymentMethod === 'cash' && (
+                    <>
+                      <div>
+                        <div className="text-xs text-zinc-500 mb-1">Efectivo recibido</div>
+                        <input
+                          type="number"
+                          value={cashReceived}
+                          onChange={(e) => setCashReceived(Number(e.target.value))}
+                          placeholder="0"
+                          className={ui.input}
+                        />
+
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                          {quickCash.map((v) => (
+                            <button key={v} onClick={() => setCashReceived(v)} className={ui.primaryStrong}>
+                              {money(v)}
+                            </button>
+                          ))}
+                          <button onClick={() => setCashReceived(total)} className={ui.primaryStrong} disabled={total <= 0}>
+                            Exacto
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className={`${ui.footerBox} flex items-center justify-between`}>
+                        <div className="text-xs text-zinc-500">Cambio</div>
+                        <div className="text-sm font-extrabold text-zinc-800">{money(change)}</div>
+                      </div>
+                    </>
+                  )}
 
                   <div>
                     <div className="text-xs text-zinc-500 mb-1">Notas (opcional)</div>

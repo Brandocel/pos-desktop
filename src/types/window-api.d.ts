@@ -8,7 +8,15 @@ type SalesSummaryData = {
   range: { from: string; to: string };
   totals: {
     grand: number;
+    cash: number;
+    card: number;
     categories: Array<{ category: string; qty: number; total: number }>;
+    polloTotals?: {
+      enteros: number;
+      medios: number;
+      cuartos: number;
+      total: number;
+    };
   };
   products: Array<{ name: string; category: string; qty: number; subtotal: number }>;
   tickets: Array<{
