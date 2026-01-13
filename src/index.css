@@ -1,75 +1,157 @@
-@import "tailwindcss";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* =========================================================
+   GLOBAL RESET (para apps, NO demo Vite)
+   - NO centramos body
+   - NO tocamos button/h1 global
+   - Fondo consistente
+   - Tipografía estándar
+   ========================================================= */
 
-:root {
-  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  /* Prefer light text defaults for readability */
-  color-scheme: light dark;
-  color: #111827; /* zinc-900 */
-  background-color: #ffffff;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
-}
-
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #ffffff;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
-
-@media (prefers-color-scheme: light) {
+@layer base {
   :root {
-    color: #111827; /* readable dark text on light background */
-    background-color: #ffffff;
+    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    line-height: 1.5;
+    font-weight: 400;
+
+    /* OJO: evita "light dark" porque puede afectar inputs/scrollbars */
+    color-scheme: light;
+
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+
+    /* ====== BRAND (gris) ======
+       Úsalo para reemplazar "zinc-900" en acciones principales
+    */
+    --brand: 63 63 70;         /* zinc-700 */
+    --brand-hover: 82 82 91;   /* zinc-600 */
+    --brand-press: 39 39 42;   /* zinc-800 */
+    --brand-border: 212 212 216; /* zinc-300 */
+
+    --surface: 255 255 255;    /* white */
+    --page: 244 244 245;       /* zinc-100 */
+    --ink: 24 24 27;           /* zinc-900 */
+    --muted: 113 113 122;      /* zinc-500 */
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100%;
+    background: rgb(var(--page));
+    color: rgb(var(--ink));
+  }
+
+  #root {
+    min-height: 100vh;
+    width: 100%;
+  }
+
+  /* enlaces sin “azul demo” */
+  a {
+    color: inherit;
+    text-decoration: none;
   }
   a:hover {
-    color: #747bff;
+    text-decoration: underline;
   }
+
+  /* inputs consistentes en Electron/Windows */
+  input,
+  select,
+  textarea,
   button {
-    background-color: #f9f9f9;
+    font: inherit;
+  }
+}
+
+/* =========================================================
+   COMPONENT TOKENS (clases reutilizables)
+   Úsalas en lugar de bg-zinc-900, etc.
+   ========================================================= */
+
+@layer components {
+  /* Botón primario (gris) */
+  .btn-brand {
+    @apply inline-flex items-center justify-center gap-2
+      h-10 px-4
+      text-sm font-extrabold
+      text-white
+      border
+      rounded-xl
+      transition
+      select-none;
+    background: rgb(var(--brand));
+    border-color: rgb(var(--brand-border));
+  }
+  .btn-brand:hover {
+    background: rgb(var(--brand-hover));
+  }
+  .btn-brand:active {
+    background: rgb(var(--brand-press));
+  }
+  .btn-brand:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  /* Botón secundario */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2
+      h-10 px-4
+      text-sm font-extrabold
+      border border-zinc-200
+      bg-white text-zinc-800
+      rounded-xl
+      hover:bg-zinc-50
+      transition
+      select-none;
+  }
+
+  /* Tab activo (gris) */
+  .tab-brand {
+    @apply h-11 px-4
+      text-sm font-extrabold
+      border
+      rounded-2xl
+      flex items-center justify-center gap-2
+      transition
+      select-none;
+    background: rgb(var(--brand));
+    border-color: rgb(var(--brand));
+    color: white;
+  }
+
+  /* Chip PROMO */
+  .chip-promo {
+    @apply inline-flex items-center
+      px-2 py-0.5
+      text-[11px] font-extrabold
+      border
+      rounded-full;
+    background: rgb(var(--brand) / 0.12);
+    border-color: rgb(var(--brand) / 0.25);
+    color: rgb(var(--brand));
+  }
+
+  /* Superficie / card */
+  .surface {
+    @apply bg-white border border-zinc-200;
+  }
+}
+
+/* =========================================================
+   UTILITIES (opcionales)
+   ========================================================= */
+@layer utilities {
+  .text-muted {
+    color: rgb(var(--muted));
   }
 }

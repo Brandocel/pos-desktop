@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 interface Flavor {
   id: string;
@@ -18,27 +18,83 @@ interface ListResponse {
   };
 }
 
+type ToastKind = "success" | "error" | "info";
+type ToastItem = { id: string; kind: ToastKind; title: string; message?: string };
+
+function uid() {
+  return Math.random().toString(16).slice(2) + Date.now().toString(16);
+}
+
+function formatDateMX(value: string) {
+  try {
+    return new Date(value).toLocaleDateString("es-MX", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    });
+  } catch {
+    return value;
+  }
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
 export function AdminFlavorPanel() {
   const [flavors, setFlavors] = useState<Flavor[]>([]);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [showDeleted, setShowDeleted] = useState(false);
+
   const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+
   const [pagination, setPagination] = useState({
     page: 1,
     pageSize: 10,
     total: 0,
     totalPages: 0,
   });
-  const [newFlavorName, setNewFlavorName] = useState("");
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
-  // Cargar sabores
+  const [newFlavorName, setNewFlavorName] = useState("");
+
+  // Toast system (sin libs)
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const toastTimers = useRef<Record<string, number>>({});
+
+  function pushToast(kind: ToastKind, title: string, message?: string) {
+    const id = uid();
+    const t: ToastItem = { id, kind, title, message };
+    setToasts((prev) => [t, ...prev].slice(0, 4));
+
+    const timer = window.setTimeout(() => {
+      setToasts((prev) => prev.filter((x) => x.id !== id));
+      delete toastTimers.current[id];
+    }, 2600);
+
+    toastTimers.current[id] = timer;
+  }
+
+  function removeToast(id: string) {
+    const timer = toastTimers.current[id];
+    if (timer) window.clearTimeout(timer);
+    delete toastTimers.current[id];
+    setToasts((prev) => prev.filter((x) => x.id !== id));
+  }
+
+  useEffect(() => {
+    return () => {
+      Object.values(toastTimers.current).forEach((t) => window.clearTimeout(t));
+      toastTimers.current = {};
+    };
+  }, []);
+
+  const canCreate = useMemo(() => newFlavorName.trim().length >= 2, [newFlavorName]);
+
   const loadFlavors = async (pageNum: number = 1, searchTerm: string = "") => {
     try {
       setLoading(true);
-      setError("");
       const response = (await window.api.flavors?.list({
         page: pageNum,
         pageSize: 10,
@@ -50,11 +106,11 @@ export function AdminFlavorPanel() {
         setFlavors(response.data);
         setPagination(response.pagination);
       } else {
-        setError("Error al cargar sabores");
+        pushToast("error", "No se pudo cargar", "Ocurrió un error al cargar sabores.");
       }
     } catch (err) {
-      setError("Error de conexión");
       console.error(err);
+      pushToast("error", "Error de conexión", "Revisa tu API / bridge de Electron.");
     } finally {
       setLoading(false);
     }
@@ -62,131 +118,243 @@ export function AdminFlavorPanel() {
 
   useEffect(() => {
     loadFlavors(page, search);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search, showDeleted]);
 
-  // Crear sabor
   const handleCreateFlavor = async () => {
-    if (!newFlavorName.trim()) {
-      setError("El nombre es requerido");
+    const name = newFlavorName.trim();
+    if (!name) {
+      pushToast("error", "Nombre requerido", "Escribe el nombre del sabor.");
       return;
     }
 
     try {
-      setLoading(true);
-      setError("");
-      const response = (await window.api.flavors.create({ name: newFlavorName })) as {
+      setCreating(true);
+      const response = (await window.api.flavors.create({ name })) as {
         ok: boolean;
         message?: string;
       };
 
       if (response.ok) {
-        setSuccess("Sabor creado exitosamente");
+        pushToast("success", "Sabor creado", `"${name}" se agregó al catálogo.`);
         setNewFlavorName("");
         setPage(1);
-        setTimeout(() => {
-          loadFlavors(1, search);
-          setSuccess("");
-        }, 500);
+        await loadFlavors(1, search);
       } else {
-        setError(response.message || "Error al crear sabor");
+        pushToast("error", "No se pudo crear", response.message || "Intenta de nuevo.");
       }
     } catch (err) {
-      setError("Error de conexión");
       console.error(err);
+      pushToast("error", "Error de conexión", "No se pudo crear el sabor.");
     } finally {
-      setLoading(false);
+      setCreating(false);
     }
   };
 
-  // Eliminar sabor
-  const handleDeleteFlavor = async (id: string) => {
-    if (window.confirm("¿Eliminar este sabor?")) {
-      try {
-        setError("");
-        const response = (await window.api.flavors.delete({ id })) as { ok: boolean };
-        if (response.ok) {
-          setSuccess("Sabor eliminado");
-          setTimeout(() => {
-            loadFlavors(page, search);
-            setSuccess("");
-          }, 500);
-        }
-      } catch (err) {
-        setError("Error al eliminar");
-        console.error(err);
-      }
-    }
-  };
+  const handleDeleteFlavor = async (id: string, flavorName?: string) => {
+    const ok = window.confirm(`¿Eliminar este sabor${flavorName ? `: "${flavorName}"` : ""}?`);
+    if (!ok) return;
 
-  // Restaurar sabor
-  const handleRestoreFlavor = async (id: string) => {
     try {
-      setError("");
-      const response = (await window.api.flavors.restore({ id })) as { ok: boolean };
+      const response = (await window.api.flavors.delete({ id })) as { ok: boolean; message?: string };
       if (response.ok) {
-        setSuccess("Sabor restaurado");
-        setTimeout(() => {
-          loadFlavors(page, search);
-          setSuccess("");
-        }, 500);
+        pushToast("success", "Sabor eliminado", flavorName ? `"${flavorName}" se movió a eliminados.` : undefined);
+        await loadFlavors(page, search);
+      } else {
+        pushToast("error", "No se pudo eliminar", response.message || "Intenta de nuevo.");
       }
     } catch (err) {
-      setError("Error al restaurar");
       console.error(err);
+      pushToast("error", "Error al eliminar", "Revisa tu conexión / API.");
     }
   };
+
+  const handleRestoreFlavor = async (id: string, flavorName?: string) => {
+    try {
+      const response = (await window.api.flavors.restore({ id })) as { ok: boolean; message?: string };
+      if (response.ok) {
+        pushToast("success", "Sabor restaurado", flavorName ? `"${flavorName}" volvió a estar activo.` : undefined);
+        await loadFlavors(page, search);
+      } else {
+        pushToast("error", "No se pudo restaurar", response.message || "Intenta de nuevo.");
+      }
+    } catch (err) {
+      console.error(err);
+      pushToast("error", "Error al restaurar", "Revisa tu conexión / API.");
+    }
+  };
+
+  // Paginación compacta: muestra [1] ... [p-1] [p] [p+1] ... [last]
+  const pageButtons = useMemo(() => {
+    const total = pagination.totalPages || 0;
+    if (total <= 1) return [];
+    const current = page;
+
+    const items: (number | "dots")[] = [];
+    const add = (x: number | "dots") => items.push(x);
+
+    add(1);
+    if (current - 2 > 2) add("dots");
+
+    for (let p = current - 1; p <= current + 1; p++) {
+      if (p > 1 && p < total) add(p);
+    }
+
+    if (current + 2 < total) add("dots");
+    if (total > 1) add(total);
+
+    // remove duplicates
+    return items.filter((v, i) => items.indexOf(v) === i);
+  }, [pagination.totalPages, page]);
 
   return (
-    <div className="p-6 bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
-      <div className="max-w-4xl mx-auto">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans">
+      {/* TOASTS */}
+      <div className="fixed right-4 top-4 z-[9999] w-[360px] max-w-[92vw] space-y-2">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={[
+              "border bg-white px-3 py-2 shadow-sm",
+              "rounded-none", // ✅ sin redondeado
+              t.kind === "success" ? "border-emerald-200" : "",
+              t.kind === "error" ? "border-rose-200" : "",
+              t.kind === "info" ? "border-zinc-200" : "",
+            ].join(" ")}
+            role="status"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold tracking-tight">
+                  {t.kind === "success" ? "✅ " : t.kind === "error" ? "⛔ " : "ℹ️ "}
+                  {t.title}
+                </div>
+                {t.message ? <div className="text-xs text-zinc-600 mt-0.5">{t.message}</div> : null}
+              </div>
+              <button
+                onClick={() => removeToast(t.id)}
+                className="text-xs font-extrabold text-zinc-500 hover:text-zinc-800"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mx-auto max-w-[980px] px-4 py-5">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Gestionar Sabores</h1>
-          <p className="text-gray-600">Crea, edita y administra el catálogo de sabores</p>
+        <div className="mb-4">
+          <div className="text-xs text-zinc-500">Administración</div>
+          <div className="text-3xl font-extrabold tracking-tight">Gestionar Sabores</div>
+          <div className="text-sm text-zinc-600 mt-1">Crea y administra el catálogo de sabores.</div>
         </div>
 
-        {/* Alertas */}
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-            {error}
-          </div>
-        )}
-        {success && (
-          <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700">
-            {success}
-          </div>
-        )}
-
-        {/* Crear nuevo sabor */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Agregar Nuevo Sabor</h2>
-          <div className="flex gap-3">
-            <input
-              type="text"
-              value={newFlavorName}
-              onChange={(e) => setNewFlavorName(e.target.value)}
-              onKeyPress={(e) => e.key === "Enter" && handleCreateFlavor()}
-              placeholder="Nombre del sabor..."
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={loading}
-            />
+        {/* Panel: Crear */}
+        <div className="border border-zinc-200 bg-white rounded-none">
+          <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-extrabold tracking-tight">Crear sabor</div>
+              <div className="text-xs text-zinc-500">Presiona Enter para guardar.</div>
+            </div>
             <button
-              onClick={handleCreateFlavor}
-              disabled={loading}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition"
+              onClick={() => {
+                setNewFlavorName("");
+                pushToast("info", "Formulario limpio", "Listo para capturar un nuevo sabor.");
+              }}
+              className="h-9 px-3 text-xs font-extrabold border border-zinc-200 bg-white hover:bg-zinc-50 rounded-none"
+              type="button"
             >
-              {loading ? "..." : "Guardar"}
+              Limpiar
             </button>
           </div>
-          <p className="text-xs text-gray-500 mt-2">Presiona Enter o usa el botón Guardar.</p>
+
+          <div className="p-4">
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">Nombre</label>
+                <input
+                  type="text"
+                  value={newFlavorName}
+                  onChange={(e) => setNewFlavorName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCreateFlavor();
+                  }}
+                  placeholder="Ej: Adobado"
+                  className={[
+                    "h-10 w-full px-3 border bg-white text-sm outline-none",
+                    "border-zinc-200 focus:border-zinc-400",
+                    "rounded-none", // ✅ sin redondeado
+                  ].join(" ")}
+                  disabled={creating}
+                />
+                <div className="text-[11px] text-zinc-500 mt-1">
+                  Mínimo 2 caracteres. Evita duplicados.
+                </div>
+              </div>
+
+              <button
+                onClick={handleCreateFlavor}
+                disabled={!canCreate || creating}
+                className={[
+                  "h-10 px-4 text-xs font-extrabold border",
+                  "rounded-none",
+                  canCreate && !creating
+                    ? "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
+                    : "border-zinc-200 bg-zinc-100 text-zinc-400 cursor-not-allowed",
+                ].join(" ")}
+                type="button"
+              >
+                {creating ? "Guardando…" : "Guardar"}
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* Filtros */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Búsqueda */}
+        {/* Panel: filtros */}
+        <div className="mt-4 border border-zinc-200 bg-white rounded-none">
+          <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Buscar</label>
+              <div className="text-sm font-extrabold tracking-tight">Listado</div>
+              <div className="text-xs text-zinc-500">
+                Total: <span className="font-extrabold text-zinc-700">{pagination.total}</span> • Página{" "}
+                <span className="font-extrabold text-zinc-700">{pagination.page}</span> de{" "}
+                <span className="font-extrabold text-zinc-700">{pagination.totalPages || 1}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2 text-xs font-extrabold text-zinc-700 select-none">
+                <input
+                  type="checkbox"
+                  checked={showDeleted}
+                  onChange={(e) => {
+                    setShowDeleted(e.target.checked);
+                    setPage(1);
+                    pushToast("info", "Filtro aplicado", e.target.checked ? "Mostrando eliminados." : "Ocultando eliminados.");
+                  }}
+                  className="h-4 w-4 border border-zinc-300 rounded-none"
+                />
+                Ver eliminados
+              </label>
+
+              <button
+                onClick={() => {
+                  loadFlavors(page, search);
+                  pushToast("info", "Actualizado", "Se refrescó el listado.");
+                }}
+                className="h-9 px-3 text-xs font-extrabold border border-zinc-200 bg-white hover:bg-zinc-50 rounded-none"
+                type="button"
+              >
+                Refrescar
+              </button>
+            </div>
+          </div>
+
+          <div className="p-4 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Buscar</label>
               <input
                 type="text"
                 value={search}
@@ -194,141 +362,184 @@ export function AdminFlavorPanel() {
                   setSearch(e.target.value);
                   setPage(1);
                 }}
-                placeholder="Nombre del sabor..."
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Buscar por nombre…"
+                className="h-10 w-full px-3 border border-zinc-200 bg-white text-sm outline-none focus:border-zinc-400 rounded-none"
               />
             </div>
 
-            {/* Ver eliminados */}
-            <div className="flex items-end">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showDeleted}
-                  onChange={(e) => {
-                    setShowDeleted(e.target.checked);
-                    setPage(1);
-                  }}
-                  className="w-4 h-4 rounded"
-                />
-                <span className="text-sm font-medium text-gray-700">Ver eliminados</span>
-              </label>
-            </div>
-
-            {/* Info */}
-            <div className="flex items-end justify-end">
-              <span className="text-sm text-gray-600">
-                Total: {pagination.total} | Página {pagination.page} de {pagination.totalPages}
-              </span>
-            </div>
+            <button
+              onClick={() => {
+                setSearch("");
+                setPage(1);
+                pushToast("info", "Búsqueda limpia", "Mostrando todos los sabores.");
+              }}
+              className="h-10 px-4 text-xs font-extrabold border border-zinc-200 bg-white hover:bg-zinc-50 rounded-none"
+              type="button"
+            >
+              Limpiar búsqueda
+            </button>
           </div>
         </div>
 
-        {/* Tabla de sabores */}
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          {loading && flavors.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">Cargando...</div>
-          ) : flavors.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">No hay sabores</div>
+        {/* Tabla */}
+        <div className="mt-4 border border-zinc-200 bg-white rounded-none overflow-hidden">
+          <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
+            <div className="text-sm font-extrabold tracking-tight">Sabores</div>
+            {loading ? <div className="text-xs text-zinc-500">Cargando…</div> : null}
+          </div>
+
+          {/* Estados */}
+          {!loading && flavors.length === 0 ? (
+            <div className="p-10 text-center">
+              <div className="text-base font-extrabold tracking-tight">Sin resultados</div>
+              <div className="text-sm text-zinc-500 mt-1">
+                {search.trim()
+                  ? "No encontramos sabores con ese nombre."
+                  : "Aún no hay sabores registrados."}
+              </div>
+            </div>
           ) : (
             <>
               <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="bg-zinc-50 border-b border-zinc-200">
                   <tr>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                      Nombre
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                      Estado
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                      Creado
-                    </th>
-                    <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">
-                      Acciones
-                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-extrabold text-zinc-700">Nombre</th>
+                    <th className="px-4 py-3 text-left text-xs font-extrabold text-zinc-700">Estado</th>
+                    <th className="px-4 py-3 text-left text-xs font-extrabold text-zinc-700">Creado</th>
+                    <th className="px-4 py-3 text-right text-xs font-extrabold text-zinc-700">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {flavors.map((flavor) => (
-                    <tr key={flavor.id} className="hover:bg-gray-50 transition">
-                      <td className="px-6 py-4 text-sm text-gray-900 font-medium">
-                        {flavor.name}
-                      </td>
-                      <td className="px-6 py-4 text-sm">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            flavor.is_deleted === 0
-                              ? "bg-green-100 text-green-800"
-                              : "bg-red-100 text-red-800"
-                          }`}
-                        >
-                          {flavor.is_deleted === 0 ? "Activo" : "Eliminado"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        {new Date(flavor.created_at).toLocaleDateString("es-MX")}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {flavor.is_deleted === 0 ? (
-                          <button
-                            onClick={() => handleDeleteFlavor(flavor.id)}
-                            className="px-3 py-1 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 transition font-medium"
-                          >
-                            Eliminar
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleRestoreFlavor(flavor.id)}
-                            className="px-3 py-1 text-sm bg-green-50 text-green-600 rounded hover:bg-green-100 transition font-medium"
-                          >
-                            Restaurar
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+
+                <tbody className="divide-y divide-zinc-200">
+                  {loading && flavors.length === 0 ? (
+                    Array.from({ length: 6 }).map((_, idx) => (
+                      <tr key={idx}>
+                        <td className="px-4 py-4">
+                          <div className="h-4 w-40 bg-zinc-100 animate-pulse" />
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="h-4 w-20 bg-zinc-100 animate-pulse" />
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="h-4 w-24 bg-zinc-100 animate-pulse" />
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <div className="h-8 w-24 bg-zinc-100 animate-pulse ml-auto" />
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    flavors.map((flavor) => {
+                      const active = flavor.is_deleted === 0;
+                      return (
+                        <tr key={flavor.id} className="hover:bg-zinc-50 transition">
+                          <td className="px-4 py-4 text-sm font-extrabold text-zinc-900">{flavor.name}</td>
+
+                          <td className="px-4 py-4 text-sm">
+                            <span
+                              className={[
+                                "inline-flex items-center gap-2 text-[11px] font-extrabold px-2 py-1 border",
+                                "rounded-none",
+                                active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-rose-200 bg-rose-50 text-rose-700",
+                              ].join(" ")}
+                            >
+                              <span className={active ? "text-emerald-600" : "text-rose-600"}>●</span>
+                              {active ? "Activo" : "Eliminado"}
+                            </span>
+                          </td>
+
+                          <td className="px-4 py-4 text-sm text-zinc-600">{formatDateMX(flavor.created_at)}</td>
+
+                          <td className="px-4 py-4 text-right">
+                            {active ? (
+                              <button
+                                onClick={() => handleDeleteFlavor(flavor.id, flavor.name)}
+                                className="h-9 px-3 text-xs font-extrabold border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-none"
+                                type="button"
+                              >
+                                Eliminar
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleRestoreFlavor(flavor.id, flavor.name)}
+                                className="h-9 px-3 text-xs font-extrabold border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-none"
+                                type="button"
+                              >
+                                Restaurar
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
 
-              {/* Paginación */}
-              {pagination.totalPages > 1 && (
-                <div className="px-6 py-4 border-t border-gray-200 flex justify-between items-center bg-gray-50">
+              {/* Footer / Paginación */}
+              {pagination.totalPages > 1 ? (
+                <div className="px-4 py-3 border-t border-zinc-200 bg-zinc-50 flex items-center justify-between gap-3 flex-wrap">
                   <button
-                    onClick={() => setPage(Math.max(1, page - 1))}
+                    onClick={() => setPage((p) => clamp(p - 1, 1, pagination.totalPages))}
                     disabled={page === 1}
-                    className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 disabled:opacity-50 transition"
+                    className={[
+                      "h-9 px-3 text-xs font-extrabold border rounded-none",
+                      page === 1
+                        ? "border-zinc-200 bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                        : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                    ].join(" ")}
+                    type="button"
                   >
                     ← Anterior
                   </button>
 
-                  <div className="flex gap-2">
-                    {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((p) => (
-                      <button
-                        key={p}
-                        onClick={() => setPage(p)}
-                        className={`px-3 py-2 rounded transition ${
-                          p === page
-                            ? "bg-blue-600 text-white"
-                            : "bg-gray-200 text-gray-800 hover:bg-gray-300"
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    ))}
+                  <div className="flex items-center gap-1">
+                    {pageButtons.map((p, idx) =>
+                      p === "dots" ? (
+                        <span key={`d-${idx}`} className="px-2 text-xs text-zinc-500 select-none">
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => setPage(p)}
+                          className={[
+                            "h-9 min-w-[36px] px-2 text-xs font-extrabold border rounded-none",
+                            p === page
+                              ? "border-zinc-900 bg-zinc-900 text-white"
+                              : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                          ].join(" ")}
+                          type="button"
+                        >
+                          {p}
+                        </button>
+                      )
+                    )}
                   </div>
 
                   <button
-                    onClick={() => setPage(Math.min(pagination.totalPages, page + 1))}
+                    onClick={() => setPage((p) => clamp(p + 1, 1, pagination.totalPages))}
                     disabled={page === pagination.totalPages}
-                    className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 disabled:opacity-50 transition"
+                    className={[
+                      "h-9 px-3 text-xs font-extrabold border rounded-none",
+                      page === pagination.totalPages
+                        ? "border-zinc-200 bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                        : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                    ].join(" ")}
+                    type="button"
                   >
                     Siguiente →
                   </button>
                 </div>
-              )}
+              ) : null}
             </>
           )}
+        </div>
+
+        {/* Micro ayuda */}
+        <div className="mt-3 text-[11px] text-zinc-500">
+          Tip: Puedes crear sabores rápido con <span className="font-extrabold text-zinc-700">Enter</span>. Usa{" "}
+          <span className="font-extrabold text-zinc-700">Ver eliminados</span> para restaurar.
         </div>
       </div>
     </div>
