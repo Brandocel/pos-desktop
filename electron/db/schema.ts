@@ -32,6 +32,7 @@ export const schemaSQL = `
     id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
     total REAL NOT NULL,
+    payment_method TEXT NOT NULL DEFAULT 'cash',
     notes TEXT
   );
 
@@ -51,38 +52,125 @@ export const schemaSQL = `
 // Datos iniciales de sabores
 export const initialFlavors = [
   "Tamarindo",
+  "Cacahuate",
   "BBQ",
-  "Axiote",
-  "Talla",
-  "Pimienta",
-  "Pastor",
+  "Chile de Árbol",
+  "Habanero",
 ];
 
 // Datos iniciales de productos
 export const initialProducts = [
-  // Pollos (requieren sabor)
-  { name: "1/4 Pollo", category: "Pollos", price: 0, requires_flavor: 1 },
-  { name: "1/2 Pollo", category: "Pollos", price: 0, requires_flavor: 1 },
-  { name: "Pollo Entero", category: "Pollos", price: 0, requires_flavor: 1 },
+  // POLLOS (requieren sabor)
+  { name: "1/4 pollo", category: "Pollos", price: 78, requires_flavor: 1 },
+  { name: "1/2 pollo", category: "Pollos", price: 135, requires_flavor: 1 },
+  { name: "1 pollo", category: "Pollos", price: 245, requires_flavor: 1 },
 
-  // Especialidades (NO requieren sabor, pero pueden tener uno fijo)
-  { name: "Veracruz 1 Pollo", category: "Especialidades", price: 0, requires_flavor: 0 },
-  { name: "Veracruz 1/2", category: "Especialidades", price: 0, requires_flavor: 0 },
-  { name: "Peninsular 1 Pollo", category: "Especialidades", price: 0, requires_flavor: 0 },
-  { name: "Peninsular 1/2", category: "Especialidades", price: 0, requires_flavor: 0 },
+  // ESPECIALIDADES (NO requieren sabor)
+  { name: "Veracruz 1 pollo", category: "Especialidades", price: 255, requires_flavor: 0 },
+  { name: "Veracruz 1/2 pollo", category: "Especialidades", price: 145, requires_flavor: 0 },
+  { name: "Peninsular 1 pollo", category: "Especialidades", price: 255, requires_flavor: 0 },
+  { name: "Peninsular 1/2 pollo", category: "Especialidades", price: 145, requires_flavor: 0 },
 
-  // Paquetes (requieren sabor)
-  { name: "Paquete Acompañes", category: "Paquetes", price: 0, requires_flavor: 1 },
-  { name: "Paquete Amigo", category: "Paquetes", price: 0, requires_flavor: 1 },
-  { name: "Paquete Pirata", category: "Paquetes", price: 0, requires_flavor: 1 },
+  // PAQUETES (requieren sabor)
+  { name: "Acompañes", category: "Paquetes", price: 95, requires_flavor: 1 },
+  { name: "Amigo", category: "Paquetes", price: 190, requires_flavor: 1 },
+  { name: "Sorpresa", category: "Paquetes", price: 280, requires_flavor: 1 },
+  { name: "Primavera", category: "Paquetes", price: 285, requires_flavor: 1 },
+  { name: "Pirata", category: "Paquetes", price: 305, requires_flavor: 1 },
+  { name: "Pirata Con espagueti", category: "Paquetes", price: 305, requires_flavor: 1 },
+  { name: "Taquitos", category: "Paquetes", price: 300, requires_flavor: 1 },
+  { name: "Apollo", category: "Paquetes", price: 345, requires_flavor: 1 },
+  { name: "Paquete Especial", category: "Paquetes", price: 380, requires_flavor: 1 },
+  { name: "Tesoro", category: "Paquetes", price: 570, requires_flavor: 1 },
 
-  // Miércoles (requieren sabor)
-  { name: "Miércoles - Paquete Normal", category: "Miércoles", price: 0, requires_flavor: 1 },
-  { name: "Miércoles - Paquete PROMO", category: "Miércoles", price: 0, requires_flavor: 1 },
+  // MIÉRCOLES (requieren sabor)
+  { name: "Súper Miércoles", category: "Miércoles", price: 209, requires_flavor: 1 },
 
-  // Extras (NO requieren sabor, NO se incluyen)
-  { name: "Spaghetti", category: "Extras", price: 0, requires_flavor: 0 },
-  { name: "Arroz", category: "Extras", price: 0, requires_flavor: 0 },
-  { name: "Frijol", category: "Extras", price: 0, requires_flavor: 0 },
-  { name: "Refresco", category: "Extras", price: 0, requires_flavor: 0 },
+  // EXTRAS (NO requieren sabor)
+  { name: "Spaghetti", category: "Extras", price: 40, requires_flavor: 0 },
+  { name: "Ensalada de coditos", category: "Extras", price: 60, requires_flavor: 0 },
+  { name: "Arroz", category: "Extras", price: 30, requires_flavor: 0 },
+  { name: "Frijol", category: "Extras", price: 20, requires_flavor: 0 },
+  { name: "Purée de papa", category: "Extras", price: 45, requires_flavor: 0 },
+  { name: "Papa al horno", category: "Extras", price: 30, requires_flavor: 0 },
+  { name: "Postre", category: "Extras", price: 25, requires_flavor: 0 },
+  { name: "Tortillas", category: "Extras", price: 20, requires_flavor: 0 },
+  { name: "Salsa", category: "Extras", price: 20, requires_flavor: 0 },
+  { name: "Tacos dorados (4 pzas)", category: "Extras", price: 60, requires_flavor: 0 },
+  { name: "Desechable", category: "Extras", price: 5, requires_flavor: 0 },
+
+  // BEBIDAS (NO requieren sabor)
+  { name: "Agua fresca 1L", category: "Bebidas", price: 45, requires_flavor: 0 },
+  { name: "Agua fresca 500 ml", category: "Bebidas", price: 30, requires_flavor: 0 },
+  { name: "Refresco 2L", category: "Bebidas", price: 50, requires_flavor: 0 },
+  { name: "Refresco 600 ml", category: "Bebidas", price: 30, requires_flavor: 0 },
+];
+
+// Asociaciones: qué extras incluye cada paquete con cantidades
+// Formato: { packageName: "Nombre del paquete", extras: [{ name: "Extra", qty: 1 }, ...] }
+export const packageIncludes = [
+  {
+    packageName: "Acompañes",
+    extras: [{ name: "1/4 pollo", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
+  },
+  {
+    packageName: "Amigo",
+    extras: [{ name: "1/2 pollo", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }, { name: "Postre", qty: 1 }],
+  },
+  {
+    packageName: "Sorpresa",
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "Papa al horno", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
+  },
+  {
+    packageName: "Primavera",
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "Ensalada de coditos", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
+  },
+  {
+    packageName: "Pirata",
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "Purée de papa", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }, { name: "Postre", qty: 1 }],
+  },
+  {
+    packageName: "Pirata Con espagueti",
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "Spaghetti", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }, { name: "Postre", qty: 1 }],
+  },
+  {
+    packageName: "Taquitos",
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "Tacos dorados (4 pzas)", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
+  },
+  {
+    packageName: "Apollo",
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
+  },
+  {
+    packageName: "Paquete Especial",
+    extras: [{ name: "1 pollo", qty: 2 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
+  },
+  {
+    packageName: "Tesoro",
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "Purée de papa", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }, { name: "Postre", qty: 1 }],
+  },
+  
+  // ESPECIALIDADES (con sus acompañamientos)
+  {
+    packageName: "Veracruz 1 pollo",
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
+  },
+  {
+    packageName: "Veracruz 1/2 pollo",
+    extras: [{ name: "1/2 pollo", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
+  },
+  {
+    packageName: "Peninsular 1 pollo",
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
+  },
+  {
+    packageName: "Peninsular 1/2 pollo",
+    extras: [{ name: "1/2 pollo", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
+  },
+
+  // MIÉRCOLES (con sus acompañamientos)
+  {
+    packageName: "Súper Miércoles",
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
+  },
 ];
