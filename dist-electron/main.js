@@ -176,27 +176,162 @@ function getDb() {
   const dbPath = path.join(userData, "pos.sqlite");
   db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
   db.exec(schemaSQL);
   migrateSaleItems();
   migrateSales();
-  seedFlavors();
-  seedProducts();
-  seedPackageIncludes();
+  syncCatalogSafe();
   return db;
 }
-function seedFlavors() {
-  if (!db) return;
-  const countFlavors = db.prepare("SELECT COUNT(*) as count FROM flavors WHERE is_deleted = 0").get();
-  if (countFlavors.count === 0) {
-    const insert = db.prepare(
-      "INSERT INTO flavors (id, name, is_deleted, created_at) VALUES (?, ?, ?, ?)"
-    );
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    for (const flavorName of initialFlavors) {
-      const id = crypto.randomUUID();
-      insert.run(id, flavorName, 0, now);
-    }
+function resetCatalog() {
+  const database = getDb();
+  const backup = backupDbFile(path.join(app.getPath("userData"), "pos.sqlite"));
+  if (backup) console.log("✅ Backup creado:", backup);
+  const tx = database.transaction(() => {
+    syncCatalogSafe();
+  });
+  tx();
+  const total = database.prepare("SELECT COUNT(*) as c FROM products WHERE is_deleted = 0").get();
+  console.log(`✅ Catálogo sincronizado. Productos activos: ${total.c}`);
+  return { ok: true, products: total.c };
+}
+function normalizeName(s) {
+  return String(s ?? "").toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/^paquete\s+/g, "");
+}
+function nowISO() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function safeNum$1(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+function backupDbFile(dbFilePath) {
+  try {
+    if (!dbFilePath || !fs.existsSync(dbFilePath)) return null;
+    const dir = path.dirname(dbFilePath);
+    const backupDir = path.join(dir, "backups");
+    fs.mkdirSync(backupDir, { recursive: true });
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+    const backupPath = path.join(backupDir, `pos-backup-${stamp}.sqlite`);
+    fs.copyFileSync(dbFilePath, backupPath);
+    return backupPath;
+  } catch (e) {
+    console.error("No se pudo crear backup:", e);
+    return null;
   }
+}
+function syncCatalogSafe() {
+  if (!db) return;
+  const database = db;
+  const tx = database.transaction(() => {
+    const wantedFlavors = new Set(initialFlavors.map((f) => String(f).trim()));
+    const wantedProducts = new Map(
+      initialProducts.map((p) => [
+        normalizeName(p.name),
+        {
+          name: String(p.name).trim(),
+          category: String(p.category).trim(),
+          price: safeNum$1(p.price),
+          requires_flavor: safeNum$1(p.requires_flavor) ? 1 : 0
+        }
+      ])
+    );
+    const allFlavors = database.prepare(`SELECT id, name, is_deleted FROM flavors`).all();
+    const flavorByName = /* @__PURE__ */ new Map();
+    for (const f of allFlavors) flavorByName.set(String(f.name).trim(), { id: f.id, is_deleted: safeNum$1(f.is_deleted) });
+    const insertFlavor = database.prepare(
+      `INSERT INTO flavors (id, name, is_deleted, created_at) VALUES (?, ?, 0, ?)`
+    );
+    const reviveFlavor = database.prepare(`UPDATE flavors SET is_deleted = 0 WHERE id = ?`);
+    const softDeleteFlavor = database.prepare(`UPDATE flavors SET is_deleted = 1 WHERE id = ?`);
+    for (const flavorNameRaw of initialFlavors) {
+      const flavorName = String(flavorNameRaw).trim();
+      if (!flavorName) continue;
+      const existing = flavorByName.get(flavorName);
+      if (!existing) {
+        insertFlavor.run(crypto.randomUUID(), flavorName, nowISO());
+      } else if (existing.is_deleted === 1) {
+        reviveFlavor.run(existing.id);
+      }
+    }
+    for (const f of allFlavors) {
+      const name = String(f.name).trim();
+      if (!wantedFlavors.has(name) && safeNum$1(f.is_deleted) === 0) {
+        softDeleteFlavor.run(f.id);
+      }
+    }
+    const allProducts = database.prepare(`SELECT id, name, category, price, requires_flavor, is_deleted FROM products`).all();
+    const productByKey = /* @__PURE__ */ new Map();
+    for (const p of allProducts) productByKey.set(normalizeName(p.name), p);
+    const insertProduct = database.prepare(
+      `INSERT INTO products (id, name, category, price, requires_flavor, flavor_id, is_deleted, created_at)
+       VALUES (?, ?, ?, ?, ?, NULL, 0, ?)`
+    );
+    const updateProduct = database.prepare(
+      `UPDATE products
+       SET category = ?,
+           price = ?,
+           requires_flavor = ?,
+           is_deleted = 0
+       WHERE id = ?`
+    );
+    const softDeleteProduct = database.prepare(`UPDATE products SET is_deleted = 1 WHERE id = ?`);
+    for (const [key, desired] of wantedProducts.entries()) {
+      const existing = productByKey.get(key);
+      if (!existing) {
+        insertProduct.run(
+          crypto.randomUUID(),
+          desired.name,
+          desired.category,
+          desired.price,
+          desired.requires_flavor,
+          nowISO()
+        );
+        continue;
+      }
+      const existingCategory = String(existing.category ?? "").trim();
+      const existingPrice = safeNum$1(existing.price);
+      const existingReq = safeNum$1(existing.requires_flavor) ? 1 : 0;
+      const existingDeleted = safeNum$1(existing.is_deleted);
+      const needsUpdate = existingCategory !== desired.category || existingPrice !== desired.price || existingReq !== desired.requires_flavor || existingDeleted !== 0;
+      if (needsUpdate) {
+        updateProduct.run(
+          desired.category,
+          desired.price,
+          desired.requires_flavor,
+          existing.id
+        );
+      }
+    }
+    for (const p of allProducts) {
+      const key = normalizeName(p.name);
+      if (!wantedProducts.has(key) && safeNum$1(p.is_deleted) === 0) {
+        softDeleteProduct.run(p.id);
+      }
+    }
+    database.prepare("DELETE FROM product_included_extras").run();
+    const getProductIdByName = database.prepare(
+      "SELECT id FROM products WHERE name = ? AND is_deleted = 0"
+    );
+    const insertAssoc = database.prepare(
+      "INSERT INTO product_included_extras (id, product_id, extra_id) VALUES (?, ?, ?)"
+    );
+    for (const pkg of packageIncludes) {
+      const packageRow = getProductIdByName.get(String(pkg.packageName).trim());
+      if (!packageRow) continue;
+      for (const extra of pkg.extras) {
+        const extraRow = getProductIdByName.get(String(extra.name).trim());
+        if (!extraRow) continue;
+        try {
+          insertAssoc.run(crypto.randomUUID(), packageRow.id, extraRow.id);
+        } catch (err) {
+          console.warn(`No se pudo asociar ${extra.name} a ${pkg.packageName}:`, err);
+        }
+      }
+    }
+    console.log("✅ Catálogo sincronizado (safe): insert/update/soft-delete + includes");
+  });
+  tx();
 }
 function migrateSaleItems() {
   if (!db) return;
@@ -205,7 +340,9 @@ function migrateSaleItems() {
   const hasFlavor = cols.some((c) => c.name === "flavor");
   const alterStatements = [];
   if (!hasCategory) {
-    alterStatements.push("ALTER TABLE sale_items ADD COLUMN category TEXT NOT NULL DEFAULT 'Sin categoría'");
+    alterStatements.push(
+      "ALTER TABLE sale_items ADD COLUMN category TEXT NOT NULL DEFAULT 'Sin categoría'"
+    );
   }
   if (!hasFlavor) {
     alterStatements.push("ALTER TABLE sale_items ADD COLUMN flavor TEXT");
@@ -224,58 +361,14 @@ function migrateSales() {
   const hasPaymentMethod = cols.some((c) => c.name === "payment_method");
   if (!hasPaymentMethod) {
     try {
-      db.prepare("ALTER TABLE sales ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'cash'").run();
+      db.prepare(
+        "ALTER TABLE sales ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'cash'"
+      ).run();
       console.log("✅ Migración: columna payment_method agregada a sales");
     } catch (err) {
       console.warn("Migración sales omitida:", err);
     }
   }
-}
-function seedProducts() {
-  if (!db) return;
-  const countProducts = db.prepare("SELECT COUNT(*) as count FROM products WHERE is_deleted = 0").get();
-  if (countProducts.count === 0) {
-    const insert = db.prepare(
-      "INSERT INTO products (id, name, category, price, requires_flavor, is_deleted, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    );
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    for (const product of initialProducts) {
-      const id = crypto.randomUUID();
-      insert.run(
-        id,
-        product.name,
-        product.category,
-        product.price,
-        product.requires_flavor,
-        0,
-        now
-      );
-    }
-  }
-}
-function seedPackageIncludes() {
-  if (!db) return;
-  const countAssocs = db.prepare("SELECT COUNT(*) as count FROM product_included_extras").get();
-  if (countAssocs.count > 0) return;
-  const insertAssoc = db.prepare(
-    "INSERT INTO product_included_extras (id, product_id, extra_id) VALUES (?, ?, ?)"
-  );
-  for (const pkg of packageIncludes) {
-    const packageRow = db.prepare("SELECT id FROM products WHERE name = ? AND is_deleted = 0").get(pkg.packageName);
-    if (!packageRow) continue;
-    for (const extra of pkg.extras) {
-      const extraName = extra.name;
-      const extraRow = db.prepare("SELECT id FROM products WHERE name = ? AND is_deleted = 0").get(extraName);
-      if (!extraRow) continue;
-      try {
-        const assocId = crypto.randomUUID();
-        insertAssoc.run(assocId, packageRow.id, extraRow.id);
-      } catch (err) {
-        console.warn(`No se pudo asociar ${extraName} a ${pkg.packageName}:`, err);
-      }
-    }
-  }
-  console.log("✅ Paquetes y extras asociados correctamente");
 }
 function safeNum(v) {
   const n = Number(v);
@@ -638,6 +731,8 @@ function registerSalesIpc() {
           saleId: row.sale_id,
           createdAt: row.created_at,
           total: safeNum(row.sale_total),
+          paymentMethod: row.payment_method === "card" ? "card" : "cash",
+          // ✅ NUEVO
           notes: row.sale_notes ?? void 0,
           items: []
         });
@@ -1004,6 +1099,12 @@ function registerProductsIpc() {
     return { ok: true };
   });
 }
+function registerDbIpc() {
+  ipcMain.handle("db:resetCatalog", async () => {
+    const result = resetCatalog();
+    return result;
+  });
+}
 const __filename$1 = fileURLToPath(import.meta.url);
 const __dirname$1 = path.dirname(__filename$1);
 let win = null;
@@ -1025,7 +1126,10 @@ function writeCrashLog(err) {
     const userData = app.getPath("userData");
     const logDir = path.join(userData, "logs");
     fs.mkdirSync(logDir, { recursive: true });
-    const file = path.join(logDir, `fatal-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.log`);
+    const file = path.join(
+      logDir,
+      `fatal-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.log`
+    );
     fs.writeFileSync(
       file,
       [
@@ -1084,9 +1188,7 @@ Archivo: ${indexHtml}
 
 Log: ${logFile ?? "no disponible"}
 
-${String(
-        err?.message || err
-      )}`
+${String(err?.message || err)}`
     );
     app.quit();
   });
@@ -1100,6 +1202,8 @@ app.on("activate", () => {
 });
 app.whenReady().then(() => {
   try {
+    const db2 = getDb();
+    registerDbIpc();
     registerSalesIpc();
     registerProductsIpc();
     createWindow();

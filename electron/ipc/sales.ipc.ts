@@ -439,22 +439,24 @@ export function registerSalesIpc() {
 
     // Tickets
     const byTicket = new Map<
-      string,
-      {
-        saleId: string;
-        createdAt: string;
-        total: number;
-        notes?: string;
-        items: Array<{
-          name: string;
-          qty: number;
-          price: number;
-          subtotal: number;
-          category: string;
-          flavor?: string | null;
-        }>;
-      }
-    >();
+    string,
+    {
+      saleId: string;
+      createdAt: string;
+      total: number;
+      paymentMethod: "cash" | "card"; // ✅ NUEVO
+      notes?: string;
+      items: Array<{
+        name: string;
+        qty: number;
+        price: number;
+        subtotal: number;
+        category: string;
+        flavor?: string | null;
+      }>;
+    }
+  >();
+  
 
     // Products aggregate (ignora extras incluidos gratis)
     const productsMap = new Map<
@@ -489,10 +491,13 @@ export function registerSalesIpc() {
           saleId: row.sale_id,
           createdAt: row.created_at,
           total: safeNum(row.sale_total),
+          paymentMethod: (row.payment_method === "card" ? "card" : "cash"), // ✅ NUEVO
           notes: row.sale_notes ?? undefined,
           items: [],
         });
       }
+      
+      
 
       byTicket.get(row.sale_id)!.items.push({
         name: row.item_name,

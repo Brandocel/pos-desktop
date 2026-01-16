@@ -2,8 +2,12 @@
 
 export interface CreateSalePayload {
   items: { name: string; qty: number; price: number }[];
+  paymentMethod: "cash" | "card";   // ✅ NUEVO
   notes?: string;
+  cashReceived?: number;
+  change?: number;
 }
+
 
 export interface CreateSaleResponse {
   ok: boolean;
