@@ -18,8 +18,21 @@ import { SidePanel } from "../pos/components/SidePanel";
 // ✅ Corte
 import { CutScreen } from "../screens/CutScreen";
 
-// ✅ Icons
-import { Settings, FileText, Search, Trash2, Minus, Plus, X } from "lucide-react";
+// ✅ Icons (COMPLETO)
+import {
+  Settings,
+  FileText,
+  Search,
+  Trash2,
+  Minus,
+  Plus,
+  X,
+  Banknote,
+  CreditCard,
+  Receipt,
+  Eraser,
+  PlusCircle,
+} from "lucide-react";
 
 type View = "sales" | "admin-flavors" | "admin-products" | "cut";
 type FlavorModalState = { open: boolean; product?: Product };
@@ -65,7 +78,7 @@ export function SalesScreen() {
 
   // pago
   const [notes, setNotes] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card">("cash");
   const [cashReceived, setCashReceived] = useState(0);
   const change = useMemo(() => Math.max(0, cashReceived - total), [cashReceived, total]);
   const quickCash = useQuickCash(total);
@@ -130,12 +143,15 @@ export function SalesScreen() {
     return filteredCatalog.filter((p) => cats.includes(p.category));
   }, [filteredCatalog, category]);
 
-  const productsExtras = useMemo(() => filteredCatalog.filter((p) => p.category === "Extras"), [filteredCatalog]);
+  const productsExtras = useMemo(
+    () => filteredCatalog.filter((p) => p.category === "Extras"),
+    [filteredCatalog]
+  );
 
   function clearSale() {
     clear();
     setCashReceived(0);
-    setPaymentMethod('cash');
+    setPaymentMethod("cash");
     setNotes("");
     setQuery("");
     setSelectedTicketKey(null);
@@ -294,7 +310,7 @@ export function SalesScreen() {
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Buscar producto… (busca en todo)"
-                    className={`${ui.input} pl-9`} // ojo: si ui.input trae rounded, quítalo en useUi para que sea 100% cuadrado
+                    className={`${ui.input} pl-9`}
                   />
                   <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">
                     {getCategoryLabel(category)}
@@ -376,7 +392,10 @@ export function SalesScreen() {
                   </div>
 
                   <button onClick={() => setQuery("")} className={btnSoft}>
-                    Limpiar búsqueda
+                    <span className="inline-flex items-center gap-2">
+                      <Eraser className="w-4 h-4" />
+                      Limpiar búsqueda
+                    </span>
                   </button>
                 </div>
 
@@ -479,9 +498,10 @@ export function SalesScreen() {
                         <button
                           onClick={addDesechablesDirect}
                           disabled={(Number(desAmount) || 0) <= 0}
-                          className="h-10 px-4 bg-zinc-900 text-white text-xs font-extrabold hover:bg-zinc-800 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="h-10 px-4 bg-zinc-900 text-white text-xs font-extrabold hover:bg-zinc-800 transition disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
                         >
-                          + Agregar
+                          <PlusCircle className="w-4 h-4" />
+                          Agregar
                         </button>
 
                         <button
@@ -492,7 +512,10 @@ export function SalesScreen() {
                           className={btnSoft}
                           title="Limpiar"
                         >
-                          Limpiar
+                          <span className="inline-flex items-center gap-2">
+                            <Eraser className="w-4 h-4" />
+                            Limpiar
+                          </span>
                         </button>
                       </div>
 
@@ -625,33 +648,36 @@ export function SalesScreen() {
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        onClick={() => setPaymentMethod('cash')}
+                        onClick={() => setPaymentMethod("cash")}
                         className={[
                           "h-11 px-4 rounded-xl text-sm font-extrabold border transition flex items-center justify-center gap-2",
-                          paymentMethod === 'cash'
+                          paymentMethod === "cash"
                             ? "bg-zinc-700 border-zinc-700 text-white shadow-sm"
                             : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
                         ].join(" ")}
                       >
-                        💵 Efectivo
+                        <Banknote className="w-4 h-4" />
+                        Efectivo
                       </button>
+
                       <button
                         type="button"
-                        onClick={() => setPaymentMethod('card')}
+                        onClick={() => setPaymentMethod("card")}
                         className={[
                           "h-11 px-4 rounded-xl text-sm font-extrabold border transition flex items-center justify-center gap-2",
-                          paymentMethod === 'card'
+                          paymentMethod === "card"
                             ? "bg-zinc-700 border-zinc-700 text-white shadow-sm"
                             : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
                         ].join(" ")}
                       >
-                        💳 Tarjeta
+                        <CreditCard className="w-4 h-4" />
+                        Tarjeta
                       </button>
                     </div>
                   </div>
 
                   {/* EFECTIVO RECIBIDO (solo si es efectivo) */}
-                  {paymentMethod === 'cash' && (
+                  {paymentMethod === "cash" && (
                     <>
                       <div>
                         <div className="text-xs text-zinc-500 mb-1">Efectivo recibido</div>
@@ -694,7 +720,10 @@ export function SalesScreen() {
                 </div>
 
                 <button disabled={cart.length === 0} onClick={chargeAndSave} className={ui.primary}>
-                  Cobrar & Guardar (imprime ticket)
+                  <span className="inline-flex items-center gap-2 justify-center">
+                    <Receipt className="w-4 h-4" />
+                    Cobrar & Guardar (imprime ticket)
+                  </span>
                 </button>
               </div>
             </aside>
