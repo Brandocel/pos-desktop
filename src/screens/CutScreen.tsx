@@ -1,5 +1,6 @@
 // src/pos/screens/CutScreen.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "react-toastify"; // ✅ NUEVO
 import { useUi } from "../pos/hooks/useUi";
 import { getTodayCancunISO } from "../pos/utils/dates";
 import { PdfPreviewDrawer } from "../pos/components/PdfPreviewDrawer";
@@ -9,12 +10,19 @@ import { CutHeader } from "./cut/CutHeader";
 import { CutFiltersBar } from "./cut/CutFiltersBar";
 import { CutOverview } from "./cut/CutOverview";
 import { CutDetail } from "./cut/CutDetail";
+
 import {
   CutProductRow,
   safeNum,
-  calcPolloTotalsFromProducts,
   calcPayTotalsFromTickets,
   CutPayTotals,
+
+  // ✅ POLLOS SEGUROS (fuente real)
+  resolvePolloTotals,
+  debugPolloMismatch,
+
+  // ✅ PARA COMPARAR CON DB SIN INVENTAR
+  getPolloTotalsFromBackend,
 } from "./cut/cutHelpers";
 
 // ✅ Ticket Drawer lateral
@@ -50,6 +58,9 @@ export function CutScreen({ onBack }: Props) {
   // ==========================
   const [ticketOpen, setTicketOpen] = useState(false);
 
+  // ✅ Anti-spam (toast mismatch)
+  const lastMismatchToastKeyRef = useRef<string>("");
+
   async function loadSummary() {
     setLoading(true);
     try {
@@ -65,40 +76,10 @@ export function CutScreen({ onBack }: Props) {
 
       setCutData(res.data);
 
-      // ✅ DEBUG TEMPORAL (MUY IMPORTANTE)
-      // Esto te va a decir cómo viene el método de pago en cada ticket.
+      // ✅ Debug de pagos (solo para ver estructura)
       const t0 = res.data?.tickets?.[0];
       if (t0) {
         console.log("TICKETS[0] RAW =>", t0);
-
-        console.table(
-          (res.data?.tickets ?? []).map((t: any, i: number) => ({
-            i,
-            // posibles campos
-            paymentMethod: t?.paymentMethod,
-            payment_method: t?.payment_method,
-            metodoPago: t?.metodoPago,
-            metodo_pago: t?.metodo_pago,
-            method: t?.method,
-            payMethod: t?.payMethod,
-
-            // anidados posibles
-            payment_method_nested: t?.payment?.method,
-            payment_type_nested: t?.payment?.type,
-            payment_name_nested: t?.payment?.name,
-            gateway: t?.payment?.gateway,
-
-            // totales posibles
-            total: t?.total,
-            grandTotal: t?.grandTotal,
-            amount: t?.amount,
-            paidTotal: t?.paidTotal,
-            totalAmount: t?.totalAmount,
-            subtotal: t?.subtotal,
-            totals_grand: t?.totals?.grand,
-            totals_total: t?.totals?.total,
-          }))
-        );
       }
     } catch (e) {
       console.error(e);
@@ -185,6 +166,51 @@ export function CutScreen({ onBack }: Props) {
     window.print();
   }
 
+  // ✅ Descargar Ticket como TXT (útil en caja / respaldo)
+  function downloadTicketTxt() {
+    if (!cutData) return;
+
+    const to = cutUseRange ? cutTo : cutFrom;
+    const dateLabel = cutUseRange ? `${cutFrom} a ${to}` : `${cutFrom}`;
+
+    // Totales ya calculados
+    const gt = safeNum(cutData?.totals?.grand);
+    const tc = safeNum(cutData?.tickets?.length);
+
+    // polloTotals ya está resuelto abajo (pero aquí lo recalculamos con el mismo criterio)
+    const polloResolved = resolvePolloTotals({
+      cutData,
+      tickets: cutData?.tickets ?? [],
+      products: cutData?.products ?? [],
+    });
+
+    const pay = calcPayTotalsFromTickets(cutData?.tickets ?? []);
+
+    const lines: string[] = [];
+    lines.push("POLLO PIRATA POS — CORTE / TICKET");
+    lines.push(`Fecha(s): ${dateLabel}`);
+    lines.push("----------------------------------------");
+    lines.push(`Total vendido: ${gt.toFixed(2)}`);
+    lines.push(`Tickets: ${tc}`);
+    lines.push("----------------------------------------");
+    lines.push(`EFECTIVO: ${safeNum(pay.efectivoTotal).toFixed(2)} (tickets: ${safeNum(pay.efectivoCount)})`);
+    lines.push(`TARJETA:  ${safeNum(pay.tarjetaTotal).toFixed(2)} (tickets: ${safeNum(pay.tarjetaCount)})`);
+    if (safeNum(pay.otrosCount) > 0) {
+      lines.push(`OTROS:    ${safeNum(pay.otrosTotal).toFixed(2)} (tickets: ${safeNum(pay.otrosCount)})`);
+    }
+    lines.push("----------------------------------------");
+    lines.push("CONSUMO DE POLLOS (sin sabor)");
+    lines.push(`TOTAL:   ${safeNum(polloResolved.total)}`);
+    lines.push(`ENTEROS: ${safeNum(polloResolved.enteros)}`);
+    lines.push(`MEDIOS:  ${safeNum(polloResolved.medios)}`);
+    lines.push(`CUARTOS: ${safeNum(polloResolved.cuartos)}`);
+    lines.push("----------------------------------------");
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const filename = `corte_ticket_${cutFrom}_a_${to}.txt`;
+    downloadBlob(blob, filename);
+  }
+
   // cleanup pdf url
   useEffect(() => {
     return () => {
@@ -201,33 +227,77 @@ export function CutScreen({ onBack }: Props) {
   // ==========================
   // computed
   // ==========================
-  const products = useMemo(() => {
+  const products: CutProductRow[] = useMemo(() => {
     const list = (cutData?.products ?? []) as CutProductRow[];
     return [...list].sort((a, b) => safeNum(b.qty) - safeNum(a.qty));
   }, [cutData]);
 
   const grandTotal = useMemo(() => safeNum(cutData?.totals?.grand), [cutData]);
 
-  const polloTotals = useMemo(() => {
-    return calcPolloTotalsFromProducts(products);
-  }, [products]);
-
   const ticketsCount = useMemo(() => safeNum(cutData?.tickets?.length), [cutData]);
 
-  // ✅ Pago: desde tickets
+  // ✅ Pago
   const payTotals: CutPayTotals = useMemo(() => {
     return calcPayTotalsFromTickets(cutData?.tickets ?? []);
   }, [cutData]);
+
+  // ✅✅✅ POLLOS (FUENTE REAL + SEGURO)
+  const polloTotals = useMemo(() => {
+    return resolvePolloTotals({
+      cutData,
+      tickets: cutData?.tickets ?? [],
+      products,
+    });
+  }, [cutData, products]);
+
+  // ✅ Toast cuando NO cuadra UI vs DB (sin spam)
+  useEffect(() => {
+    if (!cutData) return;
+
+    // DB: lo que dice backend (polloTotals real)
+    const backendTotals = getPolloTotalsFromBackend(cutData);
+
+    // Si no hay backendTotals, no comparamos (no hay "verdad" DB disponible)
+    if (!backendTotals) return;
+
+    const diff =
+      Math.abs(safeNum(backendTotals.enteros) - safeNum(polloTotals.enteros)) +
+      Math.abs(safeNum(backendTotals.medios) - safeNum(polloTotals.medios)) +
+      Math.abs(safeNum(backendTotals.cuartos) - safeNum(polloTotals.cuartos));
+
+    if (diff <= 0) return;
+
+    // anti-spam key (solo si cambia)
+    const key = JSON.stringify({
+      db: backendTotals,
+      ui: polloTotals,
+      from: cutFrom,
+      to: cutUseRange ? cutTo : cutFrom,
+      tickets: safeNum(cutData?.tickets?.length),
+    });
+
+    if (key === lastMismatchToastKeyRef.current) return;
+    lastMismatchToastKeyRef.current = key;
+
+    // console warn (ya lo tenías)
+    debugPolloMismatch({ cutData, tickets: cutData?.tickets ?? [] });
+
+    // ✅ toast
+    toast.warning(
+      `⚠️ Conteo de POLLOS no cuadra (UI vs DB). DB: E${backendTotals.enteros}/M${backendTotals.medios}/C${backendTotals.cuartos} — UI: E${polloTotals.enteros}/M${polloTotals.medios}/C${polloTotals.cuartos}. Revisa tickets/items o incluidos.`,
+      {
+        toastId: `pollo-mismatch-${safeNum(backendTotals.total)}-${safeNum(polloTotals.total)}-${safeNum(cutData?.tickets?.length)}`,
+        autoClose: 8000,
+      }
+    );
+  }, [cutData, polloTotals, cutFrom, cutTo, cutUseRange]);
 
   const rangeLabel = useMemo(() => {
     const to = cutUseRange ? cutTo : cutFrom;
     return `${cutFrom} → ${to}`;
   }, [cutFrom, cutTo, cutUseRange]);
 
-  const ticketTo = useMemo(
-    () => (cutUseRange ? cutTo : cutFrom),
-    [cutUseRange, cutFrom, cutTo]
-  );
+  const ticketTo = useMemo(() => (cutUseRange ? cutTo : cutFrom), [cutUseRange, cutFrom, cutTo]);
 
   return (
     <div className={`min-h-screen ${ui.page} font-sans`}>
@@ -241,7 +311,6 @@ export function CutScreen({ onBack }: Props) {
       </header>
 
       <main className="mx-auto max-w-[1200px] px-5 py-5 space-y-4">
-        {/* Panel General */}
         <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-zinc-200">
             <div className="text-sm font-extrabold text-zinc-900">Resumen general</div>
@@ -275,7 +344,6 @@ export function CutScreen({ onBack }: Props) {
           )}
         </div>
 
-        {/* Detalle */}
         <CutDetail uiInputClass={ui.input} products={products} grandTotal={grandTotal} />
       </main>
 
@@ -291,9 +359,18 @@ export function CutScreen({ onBack }: Props) {
         onClose={closePdf}
         onPrint={printPdf}
         onDownload={downloadPdf}
+        // ✅ NUEVO: Imprimir/Descargar como Ticket
+        onPrintTicket={() => {
+          // cierra PDF y abre ticket (opcional)
+          setPdfOpen(false);
+          setTicketOpen(true);
+          // pequeño delay no es necesario, con electron suele jalar
+          // y el usuario imprime desde el drawer
+        }}
+        onDownloadTicket={downloadTicketTxt}
       />
 
-      {/* ✅ Ticket Drawer Lateral */}
+      {/* Ticket Drawer */}
       <CutTicketDrawer
         open={ticketOpen}
         title="Corte"

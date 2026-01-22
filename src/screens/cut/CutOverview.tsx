@@ -7,9 +7,11 @@ type Props = {
   grandTotal: number;
   ticketsCount: number;
   distinctProducts: number;
+
+  // ✅ ESTE debe venir directo del backend (data.totals.polloTotals)
   polloTotals: { total: number; enteros: number; medios: number; cuartos: number };
 
-  // ✅ NUEVO
+  // ✅ Totales por pago
   payTotals: CutPayTotals;
 };
 
@@ -67,9 +69,7 @@ export function CutOverview({
             </div>
             <div className={smallValue}>{money(safeNum(payTotals.efectivoTotal))}</div>
           </div>
-          <div className={smallSub}>
-            Tickets: {safeNum(payTotals.efectivoCount)}
-          </div>
+          <div className={smallSub}>Tickets: {safeNum(payTotals.efectivoCount)}</div>
         </div>
 
         {/* Tarjeta */}
@@ -81,9 +81,7 @@ export function CutOverview({
             </div>
             <div className={smallValue}>{money(safeNum(payTotals.tarjetaTotal))}</div>
           </div>
-          <div className={smallSub}>
-            Tickets: {safeNum(payTotals.tarjetaCount)}
-          </div>
+          <div className={smallSub}>Tickets: {safeNum(payTotals.tarjetaCount)}</div>
         </div>
 
         {/* Pollos */}
@@ -112,11 +110,13 @@ export function CutOverview({
             ))}
           </div>
 
-          <div className="mt-2 text-[10px] text-zinc-500">Lista para producción (conteo rápido).</div>
+          <div className="mt-2 text-[10px] text-zinc-500">
+            Lista para producción (conteo rápido).
+          </div>
         </div>
       </div>
 
-      {/* ✅ Si quieres ver “otros” */}
+      {/* ✅ Otros */}
       {safeNum(payTotals.otrosCount) > 0 && (
         <div className="mt-3 text-xs text-zinc-500">
           Otros métodos: {money(safeNum(payTotals.otrosTotal))} · Tickets:{" "}

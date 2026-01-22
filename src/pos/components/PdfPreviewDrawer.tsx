@@ -8,21 +8,29 @@ import {
   Eye,
   Loader2,
   AlertTriangle,
+  ReceiptText, // ✅ NUEVO icono
 } from "lucide-react";
 
 type Props = {
   open: boolean;
   title?: string;
   subtitle?: string;
-  pdfUrl?: string | null; // blob url
+  pdfUrl?: string | null;
   filename?: string;
   loading?: boolean;
   error?: string | null;
 
   onClose: () => void;
+
+  // Hoja (PDF)
   onPrint?: () => void;
   onDownload?: () => void;
-  onCopyLink?: () => void; // opcional
+
+  // Ticket (HTML/TXT)
+  onPrintTicket?: () => void;      // ✅ NUEVO
+  onDownloadTicket?: () => void;   // ✅ NUEVO
+
+  onCopyLink?: () => void;
 };
 
 export function PdfPreviewDrawer({
@@ -36,11 +44,12 @@ export function PdfPreviewDrawer({
   onClose,
   onPrint,
   onDownload,
+  onPrintTicket,
+  onDownloadTicket,
   onCopyLink,
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
-  // cerrar con ESC
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -56,25 +65,16 @@ export function PdfPreviewDrawer({
 
   return (
     <div className="fixed inset-0 z-[70]">
-      {/* overlay */}
-      <button
-        aria-label="Cerrar overlay"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/30"
-      />
+      <button aria-label="Cerrar overlay" onClick={onClose} className="absolute inset-0 bg-black/30" />
 
-      {/* drawer */}
       <div className="absolute right-0 top-0 h-full w-full max-w-[520px] bg-white shadow-2xl border-l border-zinc-200 flex flex-col">
-        {/* header */}
         <div className="px-5 py-4 border-b border-zinc-200 flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="text-base font-extrabold text-zinc-900 truncate flex items-center gap-2">
               <FileText className="h-4 w-4 text-zinc-700" />
               {title}
             </div>
-            {subtitle ? (
-              <div className="text-xs text-zinc-500 truncate">{subtitle}</div>
-            ) : null}
+            {subtitle ? <div className="text-xs text-zinc-500 truncate">{subtitle}</div> : null}
           </div>
 
           <button
@@ -86,10 +86,8 @@ export function PdfPreviewDrawer({
           </button>
         </div>
 
-        {/* body */}
         <div className="flex-1 overflow-auto">
           <div className="p-4">
-            {/* estados */}
             {loading ? (
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 flex items-start gap-3">
                 <Loader2 className="h-5 w-5 text-zinc-600 animate-spin mt-0.5" />
@@ -116,7 +114,6 @@ export function PdfPreviewDrawer({
               </div>
             ) : null}
 
-            {/* preview */}
             {canShowPdf ? (
               <div className="mt-4 rounded-2xl border border-zinc-200 overflow-hidden bg-white">
                 <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between gap-3">
@@ -130,27 +127,21 @@ export function PdfPreviewDrawer({
                   </div>
                 </div>
 
-                {/* altura tipo ticket */}
                 <div className="h-[78vh] bg-zinc-100">
-                  <iframe
-                    ref={iframeRef}
-                    src={pdfUrl || undefined}
-                    title="PDF Preview"
-                    className="w-full h-full"
-                  />
+                  <iframe ref={iframeRef} src={pdfUrl || undefined} title="PDF Preview" className="w-full h-full" />
                 </div>
               </div>
             ) : null}
           </div>
         </div>
 
-        {/* footer actions */}
+        {/* footer */}
         <div className="px-5 py-4 border-t border-zinc-200 flex items-center justify-between gap-3">
           <div className="text-xs text-zinc-500 truncate">
-            {canShowPdf ? "Listo. Puedes imprimir o descargar." : "—"}
+            {canShowPdf ? "Listo. Puedes imprimir/descargar (PDF o Ticket)." : "—"}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             {onCopyLink ? (
               <button
                 onClick={onCopyLink}
@@ -162,25 +153,51 @@ export function PdfPreviewDrawer({
               </button>
             ) : null}
 
+            {/* ✅ IMPRIMIR PDF */}
             <button
               onClick={onPrint}
               disabled={!canShowPdf}
               className="h-10 px-3 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 transition text-xs font-extrabold disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
-              title="Imprimir"
+              title="Imprimir (Hoja PDF)"
             >
               <Printer className="h-4 w-4" />
-              Imprimir
+              Imprimir PDF
             </button>
 
+            {/* ✅ IMPRIMIR TICKET */}
+            {onPrintTicket ? (
+              <button
+                onClick={onPrintTicket}
+                className="h-10 px-3 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 transition text-xs font-extrabold inline-flex items-center gap-2"
+                title="Imprimir (Ticket)"
+              >
+                <ReceiptText className="h-4 w-4" />
+                Imprimir Ticket
+              </button>
+            ) : null}
+
+            {/* ✅ DESCARGAR PDF */}
             <button
               onClick={onDownload}
               disabled={!canShowPdf}
               className="h-10 px-3 rounded-xl border border-zinc-700 bg-zinc-900 text-white hover:bg-zinc-800 transition text-xs font-extrabold disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
-              title="Descargar"
+              title="Descargar (PDF)"
             >
               <Download className="h-4 w-4" />
-              Descargar
+              Descargar PDF
             </button>
+
+            {/* ✅ DESCARGAR TICKET */}
+            {onDownloadTicket ? (
+              <button
+                onClick={onDownloadTicket}
+                className="h-10 px-3 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 transition text-xs font-extrabold inline-flex items-center gap-2"
+                title="Descargar (Ticket)"
+              >
+                <Download className="h-4 w-4" />
+                Ticket TXT
+              </button>
+            ) : null}
           </div>
         </div>
       </div>

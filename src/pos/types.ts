@@ -4,7 +4,8 @@ export type Category =
   | "Paquetes"
   | "Miércoles"
   | "Extras"
-  | "Desechables";
+  | "Desechables"
+  | "Bebidas";
 
 export type Product = {
   id: string;
@@ -25,7 +26,15 @@ export type CartItem = {
   subtotal: number;
   meta?: {
     flavor?: string;
+
+    // ✅ NUEVO: lista de sabores (cuando hay varios slots)
+    flavorList?: string[];
+
+    // ✅ NUEVO: opción personalizada (puré/espagueti/etc)
+    customOption?: string;
+
     promo?: boolean;
     category?: Category;
   };
 };
+
