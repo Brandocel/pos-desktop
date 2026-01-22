@@ -116,10 +116,11 @@ export function sanitizePolloTotals(t: CutPolloTotals): CutPolloTotals {
 
 /**
  * ✅ Conteo real desde items de ticket
- * NO depende de categorías. Solo del nombre y qty.
+ * Solo cuenta Pollos directos e Incluido en paquete.
+ * NO cuenta Paquetes/Especialidades/Miércoles directos (solo sus incluidos).
  */
 export function calcPolloTotalsFromTicketItems(
-  ticketItems: Array<{ name: any; qty: any }>
+  ticketItems: Array<{ name: any; qty: any; category?: any }>
 ): CutPolloTotals {
   let enteros = 0;
   let medios = 0;
@@ -132,6 +133,11 @@ export function calcPolloTotalsFromTicketItems(
     const base = detectPolloBaseName(it?.name);
     if (!base) continue;
 
+    // Solo contar si es categoría Pollos o Incluido en paquete
+    const category = String(it?.category ?? "").toLowerCase();
+    const isPolloCategory = category === "pollos" || category.includes("incluido");
+    if (!isPolloCategory) continue;
+
     if (base === "1 pollo") enteros += qty;
     else if (base === "1/2 pollo") medios += qty;
     else if (base === "1/4 pollo") cuartos += qty;
@@ -143,7 +149,7 @@ export function calcPolloTotalsFromTicketItems(
 /**
  * ✅ Extrae items del ticket en varias estructuras (por si cambias backend)
  */
-function extractTicketItems(t: any): Array<{ name: any; qty: any }> {
+function extractTicketItems(t: any): Array<{ name: any; qty: any; category?: any }> {
   const items =
     t?.items ??
     t?.sale_items ??
@@ -157,6 +163,7 @@ function extractTicketItems(t: any): Array<{ name: any; qty: any }> {
   return items.map((it: any) => ({
     name: it?.name ?? it?.productName ?? it?.title ?? it?.descripcion,
     qty: it?.qty ?? it?.quantity ?? it?.cant ?? it?.cantidad,
+    category: it?.category ?? it?.categoria ?? it?.tipo,
   }));
 }
 
@@ -164,12 +171,12 @@ function extractTicketItems(t: any): Array<{ name: any; qty: any }> {
  * ✅ Conteo real desde tickets (todos los items)
  */
 export function calcPolloTotalsFromTickets(tickets: any[]): CutPolloTotals {
-  const allItems: Array<{ name: any; qty: any }> = [];
+  const allItems: Array<{ name: any; qty: any; category?: any }> = [];
 
   for (const t of tickets ?? []) {
     const items = extractTicketItems(t);
     for (const it of items) {
-      allItems.push({ name: it?.name, qty: it?.qty });
+      allItems.push({ name: it?.name, qty: it?.qty, category: it?.category });
     }
   }
 

@@ -119,11 +119,6 @@ function buildSimpleCountsFromRows(
     const cat = (r.item_category ?? "").toLowerCase();
     const qty = safeNum(r.item_qty);
 
-  for (const r of rows) {
-    const name = (r.item_name ?? "").toLowerCase();
-    const cat = (r.item_category ?? "").toLowerCase();
-    const qty = safeNum(r.item_qty);
-
     // Ignorar "Incluido en paquete" para TODAS las categorías (NO contar en paquetes, extras, etc)
     // pero SÍ contar en pollos (son pollos reales que se usaron)
     const isIncluded = cat.includes("incluido");
@@ -176,7 +171,6 @@ function buildSimpleCountsFromRows(
     if (!isIncluded) {
       counts.otros += qty;
     }
-  }
   }
 
   return counts;
@@ -524,8 +518,17 @@ export function registerSalesIpc() {
       const category = row.item_category || "Sin categoría";
       const nameLower = (row.item_name || "").toLowerCase();
 
-      // Conteo de pollos totales (TODOS, incluyendo incluidos en paquete)
-      if (nameLower.includes("pollo")) {
+      // Conteo de pollos totales:
+      // - Pollos directos (categoría "Pollos")
+      // - Incluidos en paquetes (categoría "Incluido en paquete")
+      // NO contar: Paquetes/Miércoles/Especialidades directos (solo sus incluidos)
+      const isPolloCategory = category === "Pollos" || category.toLowerCase().includes("incluido");
+      
+      if (nameLower.includes("pollo") && isPolloCategory) {
+        // DEBUG: log cada pollo contado
+        const tipo = nameLower.includes("1/4") ? "cuarto" : nameLower.includes("1/2") ? "medio" : "entero";
+        console.log(`[POLLO] ${tipo}: "${row.item_name}" qty=${row.item_qty} cat="${category}"`);
+        
         if (nameLower.includes("1/4")) {
           polloTotals.cuartos += safeNum(row.item_qty);
         } else if (nameLower.includes("1/2")) {
