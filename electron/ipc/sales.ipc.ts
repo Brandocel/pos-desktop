@@ -20,6 +20,8 @@ type CreateSaleInput = {
   change?: number;
 };
 
+type PackageExtra = { name: string; qty: number };
+
 function safeNum(v: any) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -34,10 +36,33 @@ function escapeHtml(s: string) {
     .replaceAll("'", "&#039;");
 }
 
+// Calcula unidades de pollo según la descripción (1, 1/2, 1/4)
+function polloUnitsFromName(name: string) {
+  const lower = name.toLowerCase();
+  if (!lower.includes("pollo")) return 0;
+  if (lower.includes("1/4")) return 0.25;
+  if (lower.includes("1/2")) return 0.5;
+  return 1;
+}
+
+// Ajusta la cantidad de salsas al número de pollos equivalentes
+function normalizeSalsas(extras: PackageExtra[]): PackageExtra[] {
+  const polloUnits = extras.reduce((acc, extra) => acc + safeNum(extra.qty) * polloUnitsFromName(extra.name), 0);
+  const salsaIdx = extras.findIndex((e) => e.name.toLowerCase() === "salsa");
+
+  if (salsaIdx === -1 || polloUnits <= 0) return extras;
+
+  const desiredSalsas = Math.max(1, Math.ceil(polloUnits));
+  const cloned = extras.map((e) => ({ ...e }));
+  cloned[salsaIdx] = { ...cloned[salsaIdx], qty: desiredSalsas };
+  return cloned;
+}
+
 // Obtener los extras asociados a un paquete/especialidad por nombre
-function getPackageExtras(db: any, packageName: string): Array<{ name: string; qty: number }> {
-  const pkg = packageIncludes.find(p => p.packageName === packageName);
-  return pkg?.extras ?? [];
+function getPackageExtras(db: any, packageName: string): PackageExtra[] {
+  const pkg = packageIncludes.find((p) => p.packageName === packageName);
+  const extras = pkg?.extras ?? [];
+  return normalizeSalsas(extras);
 }
 
 function moneyMXN(v: number) {

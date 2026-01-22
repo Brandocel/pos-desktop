@@ -6,11 +6,14 @@ export function FlavorModal(props: {
   product?: Product;
   flavors: string[];
   picked: string;
+  pickedList: string[];
+  slots: number;
   onPick: (f: string) => void;
+  onPickSlot: (slot: number, flavor: string) => void;
   onClose: () => void;
   onConfirm: () => void;
 }) {
-  const { open, ui, product, flavors, picked, onPick, onClose, onConfirm } = props;
+  const { open, ui, product, flavors, picked, pickedList, slots, onPick, onPickSlot, onClose, onConfirm } = props;
   if (!open) return null;
 
   return (
@@ -38,6 +41,27 @@ export function FlavorModal(props: {
             );
           })}
         </div>
+
+        {slots > 1 ? (
+          <div className="mt-4 space-y-2">
+            {Array.from({ length: slots }).map((_, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <div className="text-xs font-semibold text-zinc-500">Sabor #{idx + 1}</div>
+                <select
+                  className={ui.input}
+                  value={pickedList[idx] || ""}
+                  onChange={(e) => onPickSlot(idx, e.target.value)}
+                >
+                  {flavors.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className={ui.smallBtn}>Cancelar</button>

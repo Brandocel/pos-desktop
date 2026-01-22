@@ -6,6 +6,7 @@ import { useCart } from "../pos/hooks/useCart";
 import { useQuickCash } from "../pos/hooks/useQuickCash";
 import { useUi } from "../pos/hooks/useUi";
 import { printTicket } from "../pos/ticket/printTicket";
+import { packageIncludes } from "../../electron/db/schema";
 
 // ✅ Modales
 import { FlavorModal } from "../pos/modals/FlavorModal";
@@ -95,6 +96,8 @@ export function SalesScreen() {
   // Modales
   const [flavorModal, setFlavorModal] = useState<FlavorModalState>({ open: false });
   const [pickedFlavor, setPickedFlavor] = useState("");
+  const [pickedFlavors, setPickedFlavors] = useState<string[]>([]);
+  const [flavorSlots, setFlavorSlots] = useState(1);
   const [desOpen, setDesOpen] = useState(false);
   const [desUso, setDesUso] = useState("");
   const [desPrecio, setDesPrecio] = useState<number>(0);
@@ -166,6 +169,21 @@ export function SalesScreen() {
     setSelectedTicketKey(null);
   }
 
+  function polloUnitsFromName(name: string) {
+    const lower = name.toLowerCase();
+    if (!lower.includes("pollo")) return 0;
+    if (lower.includes("1/4")) return 0.25;
+    if (lower.includes("1/2")) return 0.5;
+    return 1;
+  }
+
+  function flavorSlotsForProduct(name: string) {
+    const pkg = packageIncludes.find((p) => p.packageName === name);
+    if (!pkg) return 1;
+    const units = pkg.extras.reduce((acc, extra) => acc + polloUnitsFromName(extra.name) * (extra.qty ?? 1), 0);
+    return Math.max(1, Math.ceil(units || 1));
+  }
+
   function addProduct(product: Product) {
     setLastTappedProductId(product.id);
     window.setTimeout(() => setLastTappedProductId(null), 260);
@@ -178,7 +196,15 @@ export function SalesScreen() {
     }
 
     if (product.requiresFlavor) {
-      if (dbFlavors.length > 0) setPickedFlavor(dbFlavors[0]);
+      const slots = flavorSlotsForProduct(product.name);
+      setFlavorSlots(slots);
+
+      if (dbFlavors.length > 0) {
+        const first = dbFlavors[0];
+        setPickedFlavor(first);
+        setPickedFlavors(Array.from({ length: slots }, () => first));
+      }
+
       setFlavorModal({ open: true, product });
       return;
     }
@@ -200,8 +226,13 @@ export function SalesScreen() {
 
     const isPromo = !!p.isPromoPack;
     const suffixPromo = isPromo ? " (PROMO)" : "";
-    const display = `${p.name} - ${pickedFlavor}${suffixPromo}`;
-    const key = `${p.id}__${pickedFlavor}__${isPromo ? "promo" : "normal"}`;
+
+    const chosen = (flavorSlots > 1 ? pickedFlavors : [pickedFlavor]).filter(Boolean);
+    const flavorLabel = chosen.length > 0 ? chosen.join(" / ") : "Sin sabor";
+    const flavorValue = chosen.length > 0 ? chosen.join(" | ") : undefined;
+
+    const display = `${p.name} - ${flavorLabel}${suffixPromo}`;
+    const key = `${p.id}__${flavorValue ?? "nosabor"}__${isPromo ? "promo" : "normal"}`;
 
     upsertItem({
       key,
@@ -210,10 +241,28 @@ export function SalesScreen() {
       qty: 1,
       price: p.price,
       subtotal: p.price,
-      meta: { flavor: pickedFlavor, promo: isPromo, category: p.category },
+      meta: { flavor: flavorValue, flavorList: chosen, promo: isPromo, category: p.category },
     });
 
     setFlavorModal({ open: false });
+  }
+
+  function handlePickFlavor(f: string) {
+    setPickedFlavor(f);
+    setPickedFlavors((prev) => {
+      const next = prev.length ? [...prev] : Array.from({ length: flavorSlots }, () => f);
+      next[0] = f;
+      return next;
+    });
+  }
+
+  function handlePickFlavorSlot(slot: number, flavor: string) {
+    setPickedFlavors((prev) => {
+      const arr = prev.length ? [...prev] : Array.from({ length: flavorSlots }, () => "");
+      arr[slot] = flavor;
+      if (slot === 0) setPickedFlavor(flavor);
+      return arr;
+    });
   }
 
   function confirmDesechables() {
@@ -698,7 +747,10 @@ export function SalesScreen() {
             product={flavorModal.product}
             flavors={dbFlavors}
             picked={pickedFlavor}
-            onPick={setPickedFlavor}
+            pickedList={pickedFlavors}
+            slots={flavorSlots}
+            onPick={handlePickFlavor}
+            onPickSlot={handlePickFlavorSlot}
             onClose={() => setFlavorModal({ open: false })}
             onConfirm={confirmFlavor}
           />

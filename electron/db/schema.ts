@@ -52,10 +52,11 @@ export const schemaSQL = `
 // Datos iniciales de sabores
 export const initialFlavors = [
   "Tamarindo",
-  "Cacahuate",
+  "Axiote",
   "BBQ",
-  "Chile de Árbol",
-  "Habanero",
+  "Talla",
+  "Pimienta",
+  "Pastor",
 ];
 
 // Datos iniciales de productos
@@ -102,8 +103,8 @@ export const initialProducts = [
   // BEBIDAS (NO requieren sabor)
   { name: "Agua fresca 1L", category: "Bebidas", price: 45, requires_flavor: 0 },
   { name: "Agua fresca 500 ml", category: "Bebidas", price: 30, requires_flavor: 0 },
-  { name: "Refresco 2L", category: "Bebidas", price: 50, requires_flavor: 0 },
-  { name: "Refresco 600 ml", category: "Bebidas", price: 30, requires_flavor: 0 },
+  // { name: "Refresco 2L", category: "Bebidas", price: 50, requires_flavor: 0 },
+  // { name: "Refresco 600 ml", category: "Bebidas", price: 30, requires_flavor: 0 },
 ];
 
 // Asociaciones: qué extras incluye cada paquete con cantidades
