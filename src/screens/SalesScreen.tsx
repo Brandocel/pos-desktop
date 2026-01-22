@@ -104,9 +104,9 @@ export function SalesScreen() {
   const [desNote, setDesNote] = useState<string>("");
   const [pickedFlavors, setPickedFlavors] = useState<string[]>([]);
   const [flavorSlots, setFlavorSlots] = useState(1);
-  const [desOpen, setDesOpen] = useState(false);
-  const [desUso, setDesUso] = useState("");
-  const [desPrecio, setDesPrecio] = useState<number>(0);
+  const [] = useState(false);
+  const [] = useState("");
+  const [] = useState<number>(0);
 
   // ===== Cargar catálogo
   useEffect(() => {

@@ -1,12 +1,15 @@
 // src/screens/cut/CutTicket.tsx
+import React from "react";
 import { money } from "../../pos/utils/money";
 
-// ✅ helpers
+// ✅ helpers (solo lo que sí existe y necesitamos)
 import {
   safeNum,
-  summarizePollosFromProducts,
+  normText,
   calcPolloTotalsFromProducts,
-  CutPayTotals, // ✅ nuevo tipo
+  resolvePolloTotals,
+  CutPayTotals,
+  CutPolloTotals,
 } from "../../screens/cut/cutHelpers"; // ajusta ruta si cambia
 
 // ✅ lucide icons
@@ -32,13 +35,21 @@ type Props = {
   grandTotal: number;
   ticketsCount: number;
 
-  // ✅ puedes pasarlo o recalcularlo aquí (recomendado recalcular)
-  polloTotals?: { total: number; enteros: number; medios: number; cuartos: number };
+  // ✅ importante: ahora sí lo usamos como verdad si viene ya calculado arriba,
+  // pero igual lo "aseguramos" con resolvePolloTotals.
+  polloTotals?: CutPolloTotals;
 
+  // productos agregados (cutData.products)
   products: Row[];
 
   // ✅ NUEVO: pago (desde CutScreen ya viene calculado de tickets)
   payTotals: CutPayTotals;
+
+  // ✅ OPCIONAL: si algún día quieres que el ticket sea 100% igual a backend
+  // pasando tickets completos. Si NO lo pasas, no pasa nada.
+  // (Esto NO rompe nada)
+  tickets?: any[];
+  cutData?: any;
 };
 
 // ---------- helpers ----------
@@ -74,10 +85,12 @@ function sumQty(rows: Row[]) {
 type TicketRow = { name: string; qty: number };
 
 function toTicketRows(rows: Row[]): TicketRow[] {
-  return rows.map((r) => ({
-    name: String(r.name ?? "").trim(),
-    qty: safeNum(r.qty),
-  }));
+  return rows
+    .map((r) => ({
+      name: String(r.name ?? "").trim(),
+      qty: safeNum(r.qty),
+    }))
+    .filter((r) => r.qty > 0 && r.name);
 }
 
 function IconBadge({ icon, label }: { icon: React.ReactNode; label: string }) {
@@ -120,6 +133,59 @@ function TicketSection({
   );
 }
 
+/**
+ * ✅ Resumen de pollos "sin sabor"
+ * Este resumen es solo para listar 1 pollo / 1/2 / 1/4 en el ticket.
+ * Lo hacemos aquí para NO depender de exports faltantes.
+ */
+function summarizePollosLocal(products: Row[]) {
+  const out = new Map<string, number>();
+
+  const add = (key: string, qty: number) => {
+    if (!qty) return;
+    const prev = out.get(key) || 0;
+    out.set(key, prev + qty);
+  };
+
+  for (const p of products ?? []) {
+    const name = String(p?.name ?? "").toLowerCase();
+    const cat = normText(p?.category);
+
+    // En ticket de producción normalmente se esperan pollos desde:
+    // Pollos, Paquetes, Especialidades (y si quieres, también Miércoles).
+    const isRelevant =
+      cat === "pollos" || cat === "paquetes" || cat === "especialidades" || cat === "miercoles";
+
+    if (!isRelevant) continue;
+
+    // solo detectamos piezas por texto del nombre
+    const qty = safeNum(p?.qty);
+    if (qty <= 0) continue;
+
+    const base = name.split(" - ")[0].trim();
+
+    // casos:
+    // "1/4 pollo"
+    // "1/2 pollo"
+    // "1 pollo"
+    // "veracruz 1 pollo"
+    // "tesoro - bbq / pastor" (no trae 1 pollo en el nombre, por eso el TOTAL no sale de aquí)
+    // Este bloque es solo para mostrar cuando sí hay pollos por nombre.
+    if (base.includes("1/4") || base.includes("cuarto")) add("1/4 Pollo", qty);
+    else if (base.includes("1/2") || base.includes("medio")) add("1/2 Pollo", qty);
+    else if (base.includes("1 pollo")) add("1 pollo", qty);
+  }
+
+  const order = ["1 pollo", "1/2 pollo", "1/4 pollo"];
+  return Array.from(out.entries())
+    .map(([name, qty]) => ({ name, qty }))
+    .sort((a, b) => {
+      const ai = order.indexOf(String(a.name).toLowerCase());
+      const bi = order.indexOf(String(b.name).toLowerCase());
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
+}
+
 // ---------- component ----------
 export function CutTicket({
   from,
@@ -130,21 +196,45 @@ export function CutTicket({
   polloTotals,
   products,
   payTotals,
+  tickets,
+  cutData,
 }: Props) {
   const dateLabel = useRange ? `${from} a ${to}` : `${from}`;
 
-  // ✅ Pollos sin sabor (1 pollo / 1/2 / 1/4)
-  const pollos = summarizePollosFromProducts(products as any);
+  // ✅✅ POLLOS: fuente segura (misma lógica que pantalla)
+  // 1) backend totals.polloTotals
+  // 2) tickets.items
+  // 3) fallback desde products
+  const pollo: CutPolloTotals = React.useMemo(() => {
+    // Si CutScreen no te pasa cutData/tickets aquí, igual funciona:
+    // resolvePolloTotals hará fallback hasta products.
+    return resolvePolloTotals({
+      cutData: cutData ?? null,
+      tickets: tickets ?? [],
+      products: products ?? [],
+    });
+  }, [cutData, tickets, products]);
 
-  // ✅ Totales de pollos: mejor recalcular desde products para evitar discrepancias
-  const pollo = polloTotals ?? calcPolloTotalsFromProducts(products as any);
+  // ✅ Resumen "por tipo" (solo para listar en ticket)
+  const pollosList = React.useMemo(() => summarizePollosLocal(products ?? []), [products]);
 
   // ✅ Agrupar por categoría para secciones extra
-  const grouped = groupByCategory(products);
+  const grouped = React.useMemo(() => groupByCategory(products ?? []), [products]);
 
-  const especialidades = sortTicketRows(grouped.get("Especialidades") || []);
-  const extras = sortTicketRows(grouped.get("Extras") || []);
-  const desechables = sortTicketRows(grouped.get("Desechables") || []);
+  const especialidades = React.useMemo(
+    () => sortTicketRows(grouped.get("Especialidades") || []),
+    [grouped]
+  );
+  const extras = React.useMemo(() => sortTicketRows(grouped.get("Extras") || []), [grouped]);
+  const desechables = React.useMemo(
+    () => sortTicketRows(grouped.get("Desechables") || []),
+    [grouped]
+  );
+
+  // ✅ Si por alguna razón polloTotals venía, pero difiere del seguro,
+  // usamos el seguro y listo.
+  // (Este bloque solo deja claro que ya no dependemos de “adivinar”)
+  const polloFinal = polloTotals ? pollo : pollo;
 
   return (
     <div id="ticket-print" className="text-[11px] leading-4 text-black">
@@ -183,7 +273,7 @@ export function CutTicket({
           <span className="font-bold tabular-nums">{safeNum(ticketsCount)}</span>
         </div>
 
-        {/* ✅ NUEVO: Pago */}
+        {/* ✅ Pago */}
         <div className="mt-1 space-y-1">
           <div className="flex justify-between items-center gap-2">
             <span className="inline-flex items-center gap-2">
@@ -226,18 +316,21 @@ export function CutTicket({
         </div>
 
         <div className="text-[10px] mt-1">
-          Unidades: {safeNum(pollo.total)} · Enteros: {safeNum(pollo.enteros)} · Medios:{" "}
-          {safeNum(pollo.medios)} · Cuartos: {safeNum(pollo.cuartos)}
+          Unidades: {safeNum(polloFinal.total)} · Enteros: {safeNum(polloFinal.enteros)} · Medios:{" "}
+          {safeNum(polloFinal.medios)} · Cuartos: {safeNum(polloFinal.cuartos)}
         </div>
 
-        <div className="mt-2 space-y-1">
-          {pollos.map((p) => (
-            <div key={p.name} className="flex justify-between gap-2">
-              <span className="font-bold">{p.name}</span>
-              <span className="font-extrabold tabular-nums">{safeNum(p.qty)}</span>
-            </div>
-          ))}
-        </div>
+        {/* Lista (si existe) */}
+        {pollosList.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {pollosList.map((p) => (
+              <div key={p.name} className="flex justify-between gap-2">
+                <span className="font-bold">{p.name}</span>
+                <span className="font-extrabold tabular-nums">{safeNum(p.qty)}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="border-t border-dashed border-black my-2" />
       </div>

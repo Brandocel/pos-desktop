@@ -2,15 +2,41 @@
 
 export {};
 
+type PolloTotalsDto = {
+  total: number;
+  enteros: number;
+  medios: number;
+  cuartos: number;
+};
+
 type SalesSummaryResponse = {
   ok: boolean;
   data?: {
     range: { from: string; to: string };
     totals: {
       grand: number;
+
+      // ✅ lo que ya tienes
       categories: Array<{ category: string; qty: number; total: number }>;
+
+      // ✅ NUEVO: viene del backend (si existe)
+      // Se deja opcional para no romper si el backend aún no lo manda.
+      polloTotals?: PolloTotalsDto;
+
+      // ✅ Extra: por si tu backend algún día lo manda con otro nombre
+      // (no estorba, y te evita errores)
+      pollosTotals?: PolloTotalsDto;
+      pollo?: PolloTotalsDto;
+      pollos?: PolloTotalsDto;
     };
-    products: Array<{ name: string; category: string; qty: number; subtotal: number }>;
+
+    products: Array<{
+      name: string;
+      category: string;
+      qty: number;
+      subtotal: number;
+    }>;
+
     tickets: Array<{
       saleId: string;
       createdAt: string;
@@ -24,6 +50,17 @@ type SalesSummaryResponse = {
         category: string;
         flavor?: string | null;
       }>;
+
+      // ✅ por si luego agregas método de pago aquí
+      paymentMethod?: string;
+      payment_method?: string;
+      metodoPago?: string;
+      metodo_pago?: string;
+      method?: string;
+      payMethod?: string;
+      payment?: any;
+      pago?: any;
+      tipoPago?: any;
     }>;
   };
   message?: string;
