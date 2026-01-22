@@ -6,10 +6,11 @@ import { useCart } from "../pos/hooks/useCart";
 import { useQuickCash } from "../pos/hooks/useQuickCash";
 import { useUi } from "../pos/hooks/useUi";
 import { printTicket } from "../pos/ticket/printTicket";
-import { packageIncludes } from "../../electron/db/schema";
+import { packageIncludes, productCustomOptions } from "../../electron/db/schema";
 
 // ✅ Modales
 import { FlavorModal } from "../pos/modals/FlavorModal";
+import { CustomOptionsModal } from "../pos/modals/CustomOptionsModal";
 
 // ✅ Admin panels
 import { AdminFlavorPanel } from "../screens/AdminFlavorPanel";
@@ -91,6 +92,12 @@ export function SalesScreen() {
   // Modales
   const [flavorModal, setFlavorModal] = useState<FlavorModalState>({ open: false });
   const [pickedFlavor, setPickedFlavor] = useState("");
+
+  // Custom options modal
+  type CustomOptionsState = { open: boolean; product?: Product; customOptions?: { label: string; options: Array<{ name: string; extraName: string }> } };
+  const [customOptionsModal, setCustomOptionsModal] = useState<CustomOptionsState>({ open: false });
+  const [pickedCustomOption, setPickedCustomOption] = useState("");
+  const [pendingCustomOption, setPendingCustomOption] = useState<string | undefined>(undefined);
 
   // ✅ Desechables directo
   const [desAmount, setDesAmount] = useState<number>(0);
@@ -184,6 +191,14 @@ export function SalesScreen() {
     setLastTappedProductId(product.id);
     window.setTimeout(() => setLastTappedProductId(null), 240);
 
+    // Check if product has custom options (like Pirata with puré/espagueti choice)
+    const customOpts = productCustomOptions[product.name];
+    if (customOpts) {
+      setPickedCustomOption(customOpts.options[0]?.extraName || "");
+      setCustomOptionsModal({ open: true, product, customOptions: customOpts });
+      return;
+    }
+
     if (product.requiresFlavor) {
       const slots = flavorSlotsForProduct(product.name);
       setFlavorSlots(slots);
@@ -220,8 +235,13 @@ export function SalesScreen() {
     const flavorLabel = chosen.length > 0 ? chosen.join(" / ") : "Sin sabor";
     const flavorValue = chosen.length > 0 ? chosen.join(" | ") : undefined;
 
-    const display = `${p.name} - ${flavorLabel}${suffixPromo}`;
-    const key = `${p.id}__${flavorValue ?? "nosabor"}__${isPromo ? "promo" : "normal"}`;
+    // Add custom option label if present
+    const customOptLabel = pendingCustomOption 
+      ? ` (${productCustomOptions[p.name]?.options.find(o => o.extraName === pendingCustomOption)?.name || pendingCustomOption})`
+      : "";
+
+    const display = `${p.name} - ${flavorLabel}${customOptLabel}${suffixPromo}`;
+    const key = `${p.id}__${flavorValue ?? "nosabor"}__${pendingCustomOption || "noopt"}__${isPromo ? "promo" : "normal"}`;
 
     upsertItem({
       key,
@@ -230,10 +250,17 @@ export function SalesScreen() {
       qty: 1,
       price: p.price,
       subtotal: p.price,
-      meta: { flavor: flavorValue, flavorList: chosen, promo: isPromo, category: p.category },
+      meta: { 
+        flavor: flavorValue, 
+        flavorList: chosen, 
+        customOption: pendingCustomOption, 
+        promo: isPromo, 
+        category: p.category 
+      },
     });
 
     setFlavorModal({ open: false });
+    setPendingCustomOption(undefined);
   }
 
   function handlePickFlavor(f: string) {
@@ -252,6 +279,48 @@ export function SalesScreen() {
       if (slot === 0) setPickedFlavor(flavor);
       return arr;
     });
+  }
+
+  function confirmCustomOption() {
+    const p = customOptionsModal.product;
+    if (!p) return;
+
+    // Store custom option for later use in flavor confirmation
+    setPendingCustomOption(pickedCustomOption);
+
+    // After choosing custom option, check if product requires flavor
+    if (p.requiresFlavor) {
+      const slots = flavorSlotsForProduct(p.name);
+      setFlavorSlots(slots);
+
+      if (dbFlavors.length > 0) {
+        const first = dbFlavors[0];
+        setPickedFlavor(first);
+        setPickedFlavors(Array.from({ length: slots }, () => first));
+      }
+
+      setCustomOptionsModal({ open: false });
+      setFlavorModal({ open: true, product: p });
+      return;
+    }
+
+    // If no flavor required, add directly
+    const optName = customOptionsModal.customOptions?.options.find(o => o.extraName === pickedCustomOption)?.name || pickedCustomOption;
+    const display = `${p.name} - ${optName}`;
+    const key = `${p.id}__${pickedCustomOption}`;
+
+    upsertItem({
+      key,
+      name: display,
+      baseName: p.name,
+      qty: 1,
+      price: p.price,
+      subtotal: p.price,
+      meta: { customOption: pickedCustomOption, category: p.category },
+    });
+
+    setCustomOptionsModal({ open: false });
+    setPendingCustomOption(undefined);
   }
 
   // ✅ Agregar desechables directo
@@ -286,6 +355,7 @@ export function SalesScreen() {
         price: i.price,
         category: i.meta?.category,
         flavor: i.meta?.flavor,
+        customOption: i.meta?.customOption,
       })),
       paymentMethod,
       notes: notes.trim() || undefined,
@@ -794,6 +864,19 @@ export function SalesScreen() {
             onPickSlot={handlePickFlavorSlot}
             onClose={() => setFlavorModal({ open: false })}
             onConfirm={confirmFlavor}
+          />
+
+          {/* MODAL OPCIONES PERSONALIZADAS */}
+          <CustomOptionsModal
+            open={customOptionsModal.open}
+            ui={ui}
+            product={customOptionsModal.product}
+            label={customOptionsModal.customOptions?.label || "Elige una opción"}
+            options={customOptionsModal.customOptions?.options || []}
+            picked={pickedCustomOption}
+            onPick={setPickedCustomOption}
+            onClose={() => setCustomOptionsModal({ open: false })}
+            onConfirm={confirmCustomOption}
           />
         </div>
       )}

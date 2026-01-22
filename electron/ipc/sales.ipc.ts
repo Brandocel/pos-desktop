@@ -1,7 +1,7 @@
 // electron/ipc/sales.ipc.ts
 import { ipcMain, BrowserWindow } from "electron";
 import { getDb } from "../db";
-import { packageIncludes } from "../db/schema";
+import { packageIncludes, productCustomOptions } from "../db/schema";
 import crypto from "crypto";
 
 type SaleItemInput = {
@@ -10,6 +10,7 @@ type SaleItemInput = {
   price: number;
   category?: string;
   flavor?: string;
+  customOption?: string;
 };
 
 type CreateSaleInput = {
@@ -59,9 +60,26 @@ function normalizeSalsas(extras: PackageExtra[]): PackageExtra[] {
 }
 
 // Obtener los extras asociados a un paquete/especialidad por nombre
-function getPackageExtras(db: any, packageName: string): PackageExtra[] {
-  const pkg = packageIncludes.find((p) => p.packageName === packageName);
-  const extras = pkg?.extras ?? [];
+// Si customOption está presente, reemplaza el extra correspondiente
+function getPackageExtras(db: any, packageName: string, baseName?: string, customOption?: string): PackageExtra[] {
+  const pkg = packageIncludes.find((p) => p.packageName === (baseName || packageName));
+  let extras = pkg?.extras ?? [];
+  
+  // Si hay opción personalizada, reemplazar el extra correspondiente
+  if (customOption && baseName) {
+    const customConfig = productCustomOptions[baseName];
+    if (customConfig) {
+      // Encontrar qué extra original reemplazar (buscar todos los posibles extras de las opciones)
+      const allOptionExtras = customConfig.options.map(o => o.extraName);
+      extras = extras.map(e => {
+        if (allOptionExtras.includes(e.name)) {
+          return { ...e, name: customOption };
+        }
+        return e;
+      });
+    }
+  }
+  
   return normalizeSalsas(extras);
 }
 
@@ -370,7 +388,9 @@ export function registerSalesIpc() {
 
         // ✅ Si es un paquete o especialidad, agregar sus extras incluidos (precio 0)
         if ((it.category === "Paquetes" || it.category === "Especialidades" || it.category === "Miércoles") && it.qty > 0) {
-          const extras = getPackageExtras(db, it.name);
+          // Extraer baseName del nombre del item (eliminar sabor y opciones)
+          const baseName = it.name.split(" - ")[0]?.trim() || it.name;
+          const extras = getPackageExtras(db, it.name, baseName, it.customOption);
           for (const extra of extras) {
             const extraId = crypto.randomUUID();
             // Multiplicar la cantidad: si Paquete Especial (qty 1) incluye "1 pollo" qty 2, insertar qty 1*2=2

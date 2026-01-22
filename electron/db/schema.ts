@@ -78,7 +78,6 @@ export const initialProducts = [
   { name: "Sorpresa", category: "Paquetes", price: 280, requires_flavor: 1 },
   { name: "Primavera", category: "Paquetes", price: 285, requires_flavor: 1 },
   { name: "Pirata", category: "Paquetes", price: 305, requires_flavor: 1 },
-  { name: "Pirata Con espagueti", category: "Paquetes", price: 305, requires_flavor: 1 },
   { name: "Taquitos", category: "Paquetes", price: 300, requires_flavor: 1 },
   { name: "Apollo", category: "Paquetes", price: 345, requires_flavor: 1 },
   { name: "Paquete Especial", category: "Paquetes", price: 380, requires_flavor: 1 },
@@ -128,11 +127,7 @@ export const packageIncludes = [
   },
   {
     packageName: "Pirata",
-    extras: [{ name: "1 pollo", qty: 1 }, { name: "Purée de papa", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }, { name: "Postre", qty: 1 }],
-  },
-  {
-    packageName: "Pirata Con espagueti",
-    extras: [{ name: "1 pollo", qty: 1 }, { name: "Spaghetti", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }, { name: "Postre", qty: 1 }],
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }, { name: "Postre", qty: 1 }],
   },
   {
     packageName: "Taquitos",
@@ -140,7 +135,7 @@ export const packageIncludes = [
   },
   {
     packageName: "Apollo",
-    extras: [{ name: "1 pollo", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "1/2 pollo", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
   },
   {
     packageName: "Paquete Especial",
@@ -148,7 +143,7 @@ export const packageIncludes = [
   },
   {
     packageName: "Tesoro",
-    extras: [{ name: "1 pollo", qty: 1 }, { name: "Purée de papa", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }, { name: "Postre", qty: 1 }],
+    extras: [{ name: "1 pollo", qty: 2 }, { name: "Purée de papa", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }, { name: "Postre", qty: 1 }],
   },
   
   // ESPECIALIDADES (con sus acompañamientos)
@@ -175,3 +170,15 @@ export const packageIncludes = [
     extras: [{ name: "1 pollo", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }],
   },
 ];
+
+// Opciones personalizables para productos
+// Permite elegir entre variantes de acompañamientos u otros extras
+export const productCustomOptions: Record<string, { label: string; options: Array<{ name: string; extraName: string }> }> = {
+  "Pirata": {
+    label: "Elige tu acompañamiento",
+    options: [
+      { name: "Con puré de papa", extraName: "Purée de papa" },
+      { name: "Con espagueti", extraName: "Spaghetti" },
+    ],
+  },
+};
