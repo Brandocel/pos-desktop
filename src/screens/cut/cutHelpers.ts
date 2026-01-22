@@ -125,9 +125,19 @@ export function calcPolloTotalsFromTicketItems(
     if (!base) continue;
 
     // Solo contar si es categoría Pollos o Incluido en paquete
-    const category = String(it?.category ?? "").toLowerCase();
-    const isPolloCategory = category === "pollos" || category.includes("incluido");
-    if (!isPolloCategory) continue;
+    const category = normText(it?.category ?? "");
+
+    // Queremos contar pollo si:
+    // - es venta directa en Pollos
+    // - o es incluido en paquete
+    // - o viene como producto "Especialidades" (ej. Peninsular 1 Pollo)
+    const isAllowed =
+      category.includes("pollos") ||
+      category.includes("incluido") ||
+      category.includes("especialidades");
+    
+    if (!isAllowed) continue;
+    
 
     if (base === "1 pollo") enteros += qty;
     else if (base === "1/2 pollo") medios += qty;
@@ -142,11 +152,18 @@ export function calcPolloTotalsFromTickets(tickets: any[]): CutPolloTotals {
 
   for (const t of tickets ?? []) {
     const items = extractTicketItems(t);
-    for (const it of items) allItems.push({ name: it?.name, qty: it?.qty });
+    for (const it of items) {
+      allItems.push({
+        name: it?.name,
+        qty: it?.qty,
+        category: it?.category, // ✅ NECESARIO
+      });
+    }
   }
 
   return calcPolloTotalsFromTicketItems(allItems);
 }
+
 
 // =======================
 // Backend -> polloTotals (lo que dice el backend)
@@ -244,28 +261,32 @@ export function resolvePolloTotals(args: {
   backendResponse?: any;
   cutData?: any;
   tickets?: any[] | null;
-  products?: any[] | null;
 }): CutPolloTotals {
-  const backend = getPolloTotalsFromBackend(args.backendResponse) || getPolloTotalsFromBackend(args.cutData);
+  const backend =
+    getPolloTotalsFromBackend(args.backendResponse) ||
+    getPolloTotalsFromBackend(args.cutData);
+
   const ticketsTotals = calcPolloTotalsFromTickets(args.tickets ?? []);
 
-  // Si el backend no trae polloTotals, usa tickets
-  if (!backend) return ticketsTotals;
-
-  // Si tickets trae algo y no cuadra con backend, usa tickets (UI real)
-  const hasTickets = safeNum(ticketsTotals.total) > 0;
-  if (hasTickets) {
+  // Si hay backend, SIEMPRE usar backend (BD)
+  if (backend) {
+    // Solo para debug, NO para cambiar la UI
     const diff =
       Math.abs(safeNum(backend.enteros) - safeNum(ticketsTotals.enteros)) +
       Math.abs(safeNum(backend.medios) - safeNum(ticketsTotals.medios)) +
       Math.abs(safeNum(backend.cuartos) - safeNum(ticketsTotals.cuartos));
 
-    if (diff > 0) return ticketsTotals;
+    if (diff > 0) {
+      debugPolloMismatchDetailed({ cutData: args.cutData ?? args.backendResponse, tickets: args.tickets ?? [] });
+    }
+
+    return backend;
   }
 
-  // Si sí cuadra o no hay items, backend
-  return backend;
+  // Si no hay backend, usa tickets como fallback
+  return ticketsTotals;
 }
+
 
 // =======================
 // Debug detallado (NO inventa, imprime evidencia)
