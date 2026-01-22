@@ -27,7 +27,7 @@ export type CutProductRow = {
 };
 
 export type CutPolloTotals = {
-  total: number; // piezas totales (enteros + medios + cuartos)
+  total: number;
   enteros: number;
   medios: number;
   cuartos: number;
@@ -39,7 +39,6 @@ export type CutPolloSummaryRow = {
   subtotal: number;
 };
 
-// ✅ Totales por método de pago
 export type CutPayTotals = {
   efectivoTotal: number;
   tarjetaTotal: number;
@@ -64,31 +63,15 @@ export const productionOrder = [
 ];
 
 // =======================
-// Helpers: normalización de nombre para pollos
+// Detectores de pollos
 // =======================
-
-/**
- * "1/2 Pollo - Axiote" => "1/2 pollo"
- * "1 pollo - BBQ" => "1 pollo"
- * "1/4 Pollo" => "1/4 pollo"
- */
-export function basePolloName(name: any) {
-  const s = String(name ?? "").trim();
-  const base = s.split(" - ")[0].trim();
-  return base.toLowerCase();
-}
-
-/**
- * ✅ Detecta el tipo de pollo robusto
- * Soporta "cuarto", "medio" y prefijos ("veracruz 1 pollo", etc.)
- */
 function detectPolloBaseName(
   name: any
 ): "1 pollo" | "1/2 pollo" | "1/4 pollo" | null {
   const raw = String(name ?? "").trim().toLowerCase();
   const base = raw.split(" - ")[0].trim();
 
-  // OJO: orden importa
+  // orden importa
   if (base.includes("1/4") || base.includes("cuarto")) return "1/4 pollo";
   if (base.includes("1/2") || base.includes("medio")) return "1/2 pollo";
   if (base.includes("1 pollo")) return "1 pollo";
@@ -96,29 +79,37 @@ function detectPolloBaseName(
   return null;
 }
 
-// =======================
-// ✅ PROTECCIÓN EXTRA (anti-datos raros)
-// - asegura no negativos
-// - asegura total = enteros+medios+cuartos
-// =======================
 export function sanitizePolloTotals(t: CutPolloTotals): CutPolloTotals {
   const enteros = Math.max(0, safeNum(t?.enteros));
   const medios = Math.max(0, safeNum(t?.medios));
   const cuartos = Math.max(0, safeNum(t?.cuartos));
-  const total = enteros + medios + cuartos; // siempre recalculado (evita totales corruptos)
+  const total = enteros + medios + cuartos;
   return { total, enteros, medios, cuartos };
 }
 
 // =======================
-// ✅ Conteo REAL desde items (sale_items) vía tickets
-// (incluye "Incluido en paquete" SI viene como item)
+// Tickets -> items (robusto)
 // =======================
+function extractTicketItems(t: any): Array<{ name: any; qty: any; category?: any; subtotal?: any; price?: any }> {
+  const items =
+    t?.items ??
+    t?.sale_items ??
+    t?.saleItems ??
+    t?.lineItems ??
+    t?.products ??
+    [];
 
-/**
- * ✅ Conteo real desde items de ticket
- * Solo cuenta Pollos directos e Incluido en paquete.
- * NO cuenta Paquetes/Especialidades/Miércoles directos (solo sus incluidos).
- */
+  if (!Array.isArray(items)) return [];
+
+  return items.map((it: any) => ({
+    name: it?.name ?? it?.productName ?? it?.title ?? it?.descripcion,
+    qty: it?.qty ?? it?.quantity ?? it?.cant ?? it?.cantidad,
+    category: it?.category ?? it?.categoria,
+    subtotal: it?.subtotal,
+    price: it?.price,
+  }));
+}
+
 export function calcPolloTotalsFromTicketItems(
   ticketItems: Array<{ name: any; qty: any; category?: any }>
 ): CutPolloTotals {
@@ -146,58 +137,23 @@ export function calcPolloTotalsFromTicketItems(
   return sanitizePolloTotals({ total: 0, enteros, medios, cuartos });
 }
 
-/**
- * ✅ Extrae items del ticket en varias estructuras (por si cambias backend)
- */
-function extractTicketItems(t: any): Array<{ name: any; qty: any; category?: any }> {
-  const items =
-    t?.items ??
-    t?.sale_items ??
-    t?.saleItems ??
-    t?.lineItems ??
-    t?.products ??
-    [];
-
-  if (!Array.isArray(items)) return [];
-
-  return items.map((it: any) => ({
-    name: it?.name ?? it?.productName ?? it?.title ?? it?.descripcion,
-    qty: it?.qty ?? it?.quantity ?? it?.cant ?? it?.cantidad,
-    category: it?.category ?? it?.categoria ?? it?.tipo,
-  }));
-}
-
-/**
- * ✅ Conteo real desde tickets (todos los items)
- */
 export function calcPolloTotalsFromTickets(tickets: any[]): CutPolloTotals {
   const allItems: Array<{ name: any; qty: any; category?: any }> = [];
 
   for (const t of tickets ?? []) {
     const items = extractTicketItems(t);
-    for (const it of items) {
-      allItems.push({ name: it?.name, qty: it?.qty, category: it?.category });
-    }
+    for (const it of items) allItems.push({ name: it?.name, qty: it?.qty });
   }
 
   return calcPolloTotalsFromTicketItems(allItems);
 }
 
 // =======================
-// ✅ FUENTE DE VERDAD (BACKEND / DB)
+// Backend -> polloTotals (lo que dice el backend)
 // =======================
-
-/**
- * ✅ Lee el polloTotals real que viene del backend.
- * Soporta pasar:
- * - response completo
- * - data directo
- * - data.data (si cambias wrapper)
- */
 export function getPolloTotalsFromBackend(anyResponse: any): CutPolloTotals | null {
   if (!anyResponse) return null;
 
-  // unwrap fuerte (para que funcione aunque cambies estructura)
   const cutData =
     anyResponse?.data?.totals ? anyResponse?.data :
     anyResponse?.totals ? anyResponse :
@@ -207,7 +163,7 @@ export function getPolloTotalsFromBackend(anyResponse: any): CutPolloTotals | nu
     anyResponse;
 
   const candidates = [
-    cutData?.totals?.polloTotals, // ✅ tu estructura real
+    cutData?.totals?.polloTotals,
     cutData?.polloTotals,
     cutData?.totals?.pollo,
     cutData?.totals?.pollos,
@@ -220,23 +176,9 @@ export function getPolloTotalsFromBackend(anyResponse: any): CutPolloTotals | nu
   ].filter(Boolean);
 
   for (const c of candidates) {
-    const enteros =
-      safeNum(c?.enteros) ||
-      safeNum(c?.entero) ||
-      safeNum(c?.whole) ||
-      0;
-
-    const medios =
-      safeNum(c?.medios) ||
-      safeNum(c?.medio) ||
-      safeNum(c?.half) ||
-      0;
-
-    const cuartos =
-      safeNum(c?.cuartos) ||
-      safeNum(c?.cuarto) ||
-      safeNum(c?.quarter) ||
-      0;
+    const enteros = safeNum(c?.enteros) || safeNum(c?.entero) || safeNum(c?.whole) || 0;
+    const medios  = safeNum(c?.medios)  || safeNum(c?.medio)  || safeNum(c?.half)  || 0;
+    const cuartos = safeNum(c?.cuartos) || safeNum(c?.cuarto) || safeNum(c?.quarter) || 0;
 
     const total =
       safeNum(c?.total) ||
@@ -244,7 +186,6 @@ export function getPolloTotalsFromBackend(anyResponse: any): CutPolloTotals | nu
       safeNum(c?.totalPiezas) ||
       (enteros + medios + cuartos);
 
-    // válido si trae algo
     if (total > 0 || enteros > 0 || medios > 0 || cuartos > 0) {
       return sanitizePolloTotals({ total, enteros, medios, cuartos });
     }
@@ -254,86 +195,50 @@ export function getPolloTotalsFromBackend(anyResponse: any): CutPolloTotals | nu
 }
 
 // =======================
-// ✅ FALLBACK (recetas) -> SOLO ÚLTIMO RECURSO
-// (products NO incluye incluidos)
+// Evidencia: qué items EXACTOS detectan pollos (para consola)
 // =======================
-type PolloRecipe = { enteros: number; medios: number; cuartos: number };
+export function buildPolloEvidenceFromTickets(tickets: any[]) {
+  const rows: Array<{
+    saleId: string;
+    createdAt: string;
+    name: string;
+    base: "1 pollo" | "1/2 pollo" | "1/4 pollo";
+    qty: number;
+    category?: string;
+    subtotal?: number;
+  }> = [];
 
-const POLLO_RECIPES: Record<string, PolloRecipe> = {
-  apollo: { enteros: 1, medios: 1, cuartos: 0 },
-  tesoro: { enteros: 2, medios: 0, cuartos: 0 },
+  for (const t of tickets ?? []) {
+    const saleId = String(t?.saleId ?? t?.id ?? "");
+    const createdAt = String(t?.createdAt ?? t?.created_at ?? "");
+    const items = extractTicketItems(t);
 
-  // fallback del paquete especial
-  especial: { enteros: 1, medios: 0, cuartos: 0 },
-  "paquete especial": { enteros: 1, medios: 0, cuartos: 0 },
-};
+    for (const it of items) {
+      const base = detectPolloBaseName(it?.name);
+      if (!base) continue;
 
-function normalizeKey(name: any) {
-  return String(name ?? "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .split(" - ")[0]
-    .trim();
-}
+      const qty = safeNum(it?.qty);
+      if (qty <= 0) continue;
 
-function recipeFromName(name: any): PolloRecipe | null {
-  const key = normalizeKey(name);
-  if (POLLO_RECIPES[key]) return POLLO_RECIPES[key];
-
-  for (const k of Object.keys(POLLO_RECIPES)) {
-    if (key.includes(k)) return POLLO_RECIPES[k];
-  }
-  return null;
-}
-
-/**
- * ✅ fallback final desde products
- */
-export function calcPolloTotalsFromProducts(
-  products: Array<{ category: any; name: any; qty: any }>
-): CutPolloTotals {
-  let enteros = 0;
-  let medios = 0;
-  let cuartos = 0;
-
-  for (const p of products ?? []) {
-    const qty = safeNum(p?.qty);
-    if (qty <= 0) continue;
-
-    // 1) por texto directo
-    const base = detectPolloBaseName(p?.name);
-    if (base) {
-      if (base === "1 pollo") enteros += qty;
-      else if (base === "1/2 pollo") medios += qty;
-      else if (base === "1/4 pollo") cuartos += qty;
-      continue;
+      rows.push({
+        saleId,
+        createdAt,
+        name: String(it?.name ?? ""),
+        base,
+        qty,
+        category: String(it?.category ?? ""),
+        subtotal: safeNum(it?.subtotal),
+      });
     }
-
-    // 2) por receta fallback
-    const recipe = recipeFromName(p?.name);
-    if (!recipe) continue;
-
-    enteros += recipe.enteros * qty;
-    medios += recipe.medios * qty;
-    cuartos += recipe.cuartos * qty;
   }
 
-  return sanitizePolloTotals({ total: 0, enteros, medios, cuartos });
+  return rows;
 }
 
 // =======================
-// ✅ RESOLVER FINAL (ANTI-BUGS) + ✅ CONSOLE LOG (VERIFICACIÓN DB)
-// Orden de confianza (para DIAGNÓSTICO):
-// 1) Backend (DB directo) -> preferido
-// 2) Tickets.items (DB directo) -> backup
-// 3) Products/recipes -> último recurso
-//
-// ✅ LOGS:
-// - imprime backendTotals, ticketsTotals, productsTotals
-// - imprime muestra de items que detectan pollo
-// - imprime si NO hay items en tickets
+// Resolver final (lo que muestras en UI)
+// Recomendación: mostrar ticketsTotals si hay mismatch
+// (porque refleja items reales, incluidos en paquete)
 // =======================
 export function resolvePolloTotals(args: {
   backendResponse?: any;
@@ -341,149 +246,81 @@ export function resolvePolloTotals(args: {
   tickets?: any[] | null;
   products?: any[] | null;
 }): CutPolloTotals {
-  const backend =
-    getPolloTotalsFromBackend(args.backendResponse) ||
-    getPolloTotalsFromBackend(args.cutData);
-
+  const backend = getPolloTotalsFromBackend(args.backendResponse) || getPolloTotalsFromBackend(args.cutData);
   const ticketsTotals = calcPolloTotalsFromTickets(args.tickets ?? []);
-  const productsTotals = calcPolloTotalsFromProducts(args.products ?? []);
 
-  // ✅ LOG PRINCIPAL
-  // eslint-disable-next-line no-console
-  console.groupCollapsed("🐔 POLLO DEBUG (UI vs DB)");
-  // eslint-disable-next-line no-console
-  console.log("backendTotals (cutData.totals.polloTotals?) =>", backend);
-  // eslint-disable-next-line no-console
-  console.log("ticketsTotals (from tickets.items) =>", ticketsTotals);
-  // eslint-disable-next-line no-console
-  console.log("productsTotals (fallback recipes) =>", productsTotals);
-  // eslint-disable-next-line no-console
-  console.log("tickets count =>", (args.tickets ?? []).length);
-  // eslint-disable-next-line no-console
-  console.groupEnd();
+  // Si el backend no trae polloTotals, usa tickets
+  if (!backend) return ticketsTotals;
 
-  // ✅ Caso 1: si NO hay backend, usa tickets si hay, si no products
-  if (!backend) {
-    if (safeNum(ticketsTotals.total) > 0) return ticketsTotals;
-    return productsTotals;
-  }
-
-  // ✅ Caso 2: si SI hay backend y también tickets (lo ideal):
-  // Si NO cuadra, confiamos en tickets (porque viene de items reales).
+  // Si tickets trae algo y no cuadra con backend, usa tickets (UI real)
   const hasTickets = safeNum(ticketsTotals.total) > 0;
-
   if (hasTickets) {
     const diff =
       Math.abs(safeNum(backend.enteros) - safeNum(ticketsTotals.enteros)) +
       Math.abs(safeNum(backend.medios) - safeNum(ticketsTotals.medios)) +
       Math.abs(safeNum(backend.cuartos) - safeNum(ticketsTotals.cuartos));
 
-    if (diff > 0) {
-      // eslint-disable-next-line no-console
-      console.warn("⚠️ Backend polloTotals NO cuadra con tickets. Usando ticketsTotals.", {
-        backend,
-        ticketsTotals,
-        diff,
-      });
-
-      // 👇 Esto es lo que arregla tu caso (te regresa 8 / 6 enteros)
-      return ticketsTotals;
-    }
-
-    // si sí cuadra, puedes usar backend sin miedo
-    return backend;
+    if (diff > 0) return ticketsTotals;
   }
 
-  // ✅ Caso 3: backend existe pero NO vinieron tickets.items (raro)
+  // Si sí cuadra o no hay items, backend
   return backend;
 }
 
+// =======================
+// Debug detallado (NO inventa, imprime evidencia)
+// =======================
+export function debugPolloMismatchDetailed(args: { cutData?: any; tickets?: any[] }) {
+  const backend = getPolloTotalsFromBackend(args.cutData);
+  const ticketsTotals = calcPolloTotalsFromTickets(args.tickets ?? []);
+  const evidence = buildPolloEvidenceFromTickets(args.tickets ?? []);
 
-/**
- * ✅ Debug opcional: avisa si backend vs tickets no coincide
- */
-export function debugPolloMismatch(args: { cutData?: any; tickets?: any[] }) {
-  const a = getPolloTotalsFromBackend(args.cutData);
-  const b = calcPolloTotalsFromTickets(args.tickets ?? []);
-  if (!a) return;
+  // Si no hay backend, no hay comparación
+  if (!backend) {
+    // eslint-disable-next-line no-console
+    console.warn("🐔 POLLO DEBUG: backendTotals NO disponible en cutData.totals.polloTotals");
+    // eslint-disable-next-line no-console
+    console.table(evidence);
+    return;
+  }
 
   const diff =
-    Math.abs(safeNum(a.enteros) - safeNum(b.enteros)) +
-    Math.abs(safeNum(a.medios) - safeNum(b.medios)) +
-    Math.abs(safeNum(a.cuartos) - safeNum(b.cuartos));
+    Math.abs(safeNum(backend.enteros) - safeNum(ticketsTotals.enteros)) +
+    Math.abs(safeNum(backend.medios) - safeNum(ticketsTotals.medios)) +
+    Math.abs(safeNum(backend.cuartos) - safeNum(ticketsTotals.cuartos));
+
+  // eslint-disable-next-line no-console
+  console.groupCollapsed("🐔 POLLO DEBUG (backend vs tickets)");
+  // eslint-disable-next-line no-console
+  console.log("backendTotals =>", backend);
+  // eslint-disable-next-line no-console
+  console.log("ticketsTotals =>", ticketsTotals);
+  // eslint-disable-next-line no-console
+  console.log("diff =>", diff);
+  // eslint-disable-next-line no-console
+  console.log("tickets count =>", (args.tickets ?? []).length);
+  // eslint-disable-next-line no-console
+  console.table(evidence);
+  // eslint-disable-next-line no-console
+  console.groupEnd();
 
   if (diff > 0) {
     // eslint-disable-next-line no-console
-    console.warn("⚠️ Mismatch POLLOS (backend vs tickets)", { backend: a, tickets: b });
+    console.warn("⚠️ Mismatch POLLOS detectado (backend vs tickets)", {
+      backend,
+      ticketsTotals,
+      diff,
+    });
   }
 }
 
 // =======================
-// ✅ Resumen de pollos (para Ticket / Producción)
-// =======================
-export function summarizePollosFromProducts(
-  products: CutProductRow[]
-): CutPolloSummaryRow[] {
-  const map = new Map<string, { qty: number; subtotal: number }>();
-
-  function addLine(baseName: string, addQty: number, addSubtotal: number) {
-    const prev = map.get(baseName) || { qty: 0, subtotal: 0 };
-    prev.qty += addQty;
-    prev.subtotal += addSubtotal;
-    map.set(baseName, prev);
-  }
-
-  for (const p of products ?? []) {
-    const qty = safeNum(p?.qty);
-    const sub = safeNum(p?.subtotal);
-    if (qty <= 0) continue;
-
-    const base = detectPolloBaseName(p?.name);
-    if (base) {
-      addLine(base, qty, sub);
-      continue;
-    }
-
-    const recipe = recipeFromName(p?.name);
-    if (!recipe) continue;
-
-    if (recipe.enteros) addLine("1 pollo", recipe.enteros * qty, 0);
-    if (recipe.medios) addLine("1/2 pollo", recipe.medios * qty, 0);
-    if (recipe.cuartos) addLine("1/4 pollo", recipe.cuartos * qty, 0);
-  }
-
-  const items: CutPolloSummaryRow[] = Array.from(map.entries()).map(([name, x]) => ({
-    name:
-      name === "1 pollo"
-        ? "1 pollo"
-        : name === "1/2 pollo"
-        ? "1/2 Pollo"
-        : name === "1/4 pollo"
-        ? "1/4 Pollo"
-        : name,
-    qty: x.qty,
-    subtotal: x.subtotal,
-  }));
-
-  const order = ["1 pollo", "1/2 pollo", "1/4 pollo"];
-  items.sort((a, b) => {
-    const ai = order.indexOf(String(a.name).toLowerCase());
-    const bi = order.indexOf(String(b.name).toLowerCase());
-    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-  });
-
-  return items;
-}
-
-// =======================
-// Método de pago (Efectivo / Tarjeta) - robusto
+// Pago (igual que ya tenías)
 // =======================
 function detectPaymentMethod(v: any): "efectivo" | "tarjeta" | "otro" {
   const raw = String(v ?? "").trim().toLowerCase();
 
-  if (raw.includes("efect") || raw.includes("cash") || raw === "mxn_cash" || raw === "money") {
-    return "efectivo";
-  }
+  if (raw.includes("efect") || raw.includes("cash") || raw === "mxn_cash" || raw === "money") return "efectivo";
 
   if (
     raw.includes("tarj") ||
@@ -492,16 +329,11 @@ function detectPaymentMethod(v: any): "efectivo" | "tarjeta" | "otro" {
     raw.includes("crédito") ||
     raw.includes("debito") ||
     raw.includes("débito")
-  ) {
-    return "tarjeta";
-  }
+  ) return "tarjeta";
 
   return "otro";
 }
 
-/**
- * ✅ Recalcula totales por método de pago desde tickets
- */
 export function calcPayTotalsFromTickets(tickets: any[]): CutPayTotals {
   const out: CutPayTotals = {
     efectivoTotal: 0,

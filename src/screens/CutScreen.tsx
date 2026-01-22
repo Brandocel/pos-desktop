@@ -19,7 +19,6 @@ import {
 
   // ✅ POLLOS SEGUROS (fuente real)
   resolvePolloTotals,
-  debugPolloMismatch,
 
   // ✅ PARA COMPARAR CON DB SIN INVENTAR
   getPolloTotalsFromBackend,
@@ -60,6 +59,8 @@ export function CutScreen({ onBack }: Props) {
 
   // ✅ Anti-spam (toast mismatch)
   const lastMismatchToastKeyRef = useRef<string>("");
+  // ✅ Anti-spam (console logs)
+  const lastConsoleKeyRef = useRef<string>("");
 
   async function loadSummary() {
     setLoading(true);
@@ -173,11 +174,9 @@ export function CutScreen({ onBack }: Props) {
     const to = cutUseRange ? cutTo : cutFrom;
     const dateLabel = cutUseRange ? `${cutFrom} a ${to}` : `${cutFrom}`;
 
-    // Totales ya calculados
     const gt = safeNum(cutData?.totals?.grand);
     const tc = safeNum(cutData?.tickets?.length);
 
-    // polloTotals ya está resuelto abajo (pero aquí lo recalculamos con el mismo criterio)
     const polloResolved = resolvePolloTotals({
       cutData,
       tickets: cutData?.tickets ?? [],
@@ -193,10 +192,22 @@ export function CutScreen({ onBack }: Props) {
     lines.push(`Total vendido: ${gt.toFixed(2)}`);
     lines.push(`Tickets: ${tc}`);
     lines.push("----------------------------------------");
-    lines.push(`EFECTIVO: ${safeNum(pay.efectivoTotal).toFixed(2)} (tickets: ${safeNum(pay.efectivoCount)})`);
-    lines.push(`TARJETA:  ${safeNum(pay.tarjetaTotal).toFixed(2)} (tickets: ${safeNum(pay.tarjetaCount)})`);
+    lines.push(
+      `EFECTIVO: ${safeNum(pay.efectivoTotal).toFixed(2)} (tickets: ${safeNum(
+        pay.efectivoCount
+      )})`
+    );
+    lines.push(
+      `TARJETA:  ${safeNum(pay.tarjetaTotal).toFixed(2)} (tickets: ${safeNum(
+        pay.tarjetaCount
+      )})`
+    );
     if (safeNum(pay.otrosCount) > 0) {
-      lines.push(`OTROS:    ${safeNum(pay.otrosTotal).toFixed(2)} (tickets: ${safeNum(pay.otrosCount)})`);
+      lines.push(
+        `OTROS:    ${safeNum(pay.otrosTotal).toFixed(2)} (tickets: ${safeNum(
+          pay.otrosCount
+        )})`
+      );
     }
     lines.push("----------------------------------------");
     lines.push("CONSUMO DE POLLOS (sin sabor)");
@@ -250,14 +261,61 @@ export function CutScreen({ onBack }: Props) {
     });
   }, [cutData, products]);
 
+  // ✅✅✅ CONSOLE LOG: imprimir EXACTO lo que trae DB (backend) vs UI (resuelto)
+  // (sin spam, solo cuando cambie el corte o cambien los totales)
+  useEffect(() => {
+    if (!cutData) return;
+
+    const backendTotals = getPolloTotalsFromBackend(cutData); // <- lo que viene de DB en el summary
+    const key = JSON.stringify({
+      from: cutFrom,
+      to: cutUseRange ? cutTo : cutFrom,
+      backend: backendTotals ?? null,
+      ui: polloTotals ?? null,
+      ticketsLen: safeNum(cutData?.tickets?.length),
+      grand: safeNum(cutData?.totals?.grand),
+    });
+
+    if (key === lastConsoleKeyRef.current) return;
+    lastConsoleKeyRef.current = key;
+
+    console.groupCollapsed(
+      `🧾 CORTE DEBUG (${cutFrom} → ${cutUseRange ? cutTo : cutFrom})`
+    );
+    console.log("RAW cutData.totals =>", cutData?.totals);
+    console.log("DB polloTotals (backend) =>", backendTotals);
+    console.log("UI polloTotals (resuelto) =>", polloTotals);
+
+    // extra: te imprime qué items están sumando como pollos (para detectar duplicados)
+    const polloItems = (cutData?.tickets ?? []).flatMap((t: any) =>
+      (t?.items ?? [])
+        .filter((it: any) => {
+          const n = String(it?.name ?? "").toLowerCase();
+          return n.includes("pollo") || n.includes("1/2") || n.includes("1/4") || n.includes("cuarto") || n.includes("medio");
+        })
+        .map((it: any) => ({
+          saleId: t?.saleId,
+          createdAt: t?.createdAt,
+          name: it?.name,
+          qty: it?.qty,
+          category: it?.category,
+          subtotal: it?.subtotal,
+        }))
+    );
+
+    console.table(polloItems);
+
+    console.log("Tickets count =>", safeNum(cutData?.tickets?.length));
+    console.log("Products count =>", safeNum(cutData?.products?.length));
+
+    console.groupEnd();
+  }, [cutData, polloTotals, cutFrom, cutTo, cutUseRange]);
+
   // ✅ Toast cuando NO cuadra UI vs DB (sin spam)
   useEffect(() => {
     if (!cutData) return;
 
-    // DB: lo que dice backend (polloTotals real)
     const backendTotals = getPolloTotalsFromBackend(cutData);
-
-    // Si no hay backendTotals, no comparamos (no hay "verdad" DB disponible)
     if (!backendTotals) return;
 
     const diff =
@@ -267,7 +325,6 @@ export function CutScreen({ onBack }: Props) {
 
     if (diff <= 0) return;
 
-    // anti-spam key (solo si cambia)
     const key = JSON.stringify({
       db: backendTotals,
       ui: polloTotals,
@@ -279,14 +336,14 @@ export function CutScreen({ onBack }: Props) {
     if (key === lastMismatchToastKeyRef.current) return;
     lastMismatchToastKeyRef.current = key;
 
-    // console warn (ya lo tenías)
-    debugPolloMismatch({ cutData, tickets: cutData?.tickets ?? [] });
 
-    // ✅ toast
+
     toast.warning(
       `⚠️ Conteo de POLLOS no cuadra (UI vs DB). DB: E${backendTotals.enteros}/M${backendTotals.medios}/C${backendTotals.cuartos} — UI: E${polloTotals.enteros}/M${polloTotals.medios}/C${polloTotals.cuartos}. Revisa tickets/items o incluidos.`,
       {
-        toastId: `pollo-mismatch-${safeNum(backendTotals.total)}-${safeNum(polloTotals.total)}-${safeNum(cutData?.tickets?.length)}`,
+        toastId: `pollo-mismatch-${safeNum(backendTotals.total)}-${safeNum(
+          polloTotals.total
+        )}-${safeNum(cutData?.tickets?.length)}`,
         autoClose: 8000,
       }
     );
@@ -297,7 +354,10 @@ export function CutScreen({ onBack }: Props) {
     return `${cutFrom} → ${to}`;
   }, [cutFrom, cutTo, cutUseRange]);
 
-  const ticketTo = useMemo(() => (cutUseRange ? cutTo : cutFrom), [cutUseRange, cutFrom, cutTo]);
+  const ticketTo = useMemo(
+    () => (cutUseRange ? cutTo : cutFrom),
+    [cutUseRange, cutFrom, cutTo]
+  );
 
   return (
     <div className={`min-h-screen ${ui.page} font-sans`}>
@@ -361,11 +421,8 @@ export function CutScreen({ onBack }: Props) {
         onDownload={downloadPdf}
         // ✅ NUEVO: Imprimir/Descargar como Ticket
         onPrintTicket={() => {
-          // cierra PDF y abre ticket (opcional)
           setPdfOpen(false);
           setTicketOpen(true);
-          // pequeño delay no es necesario, con electron suele jalar
-          // y el usuario imprime desde el drawer
         }}
         onDownloadTicket={downloadTicketTxt}
       />
