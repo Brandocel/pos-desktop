@@ -22,6 +22,12 @@ build/
 dist-electron/
 .win-unpacked/
 *.blockmap
+*.exe
+*.msi
+*.dll
+*.pak
+*.dat
+*.bin
 
 # Electron/Windows artifacts (por si se salen de carpetas)
 *.exe
