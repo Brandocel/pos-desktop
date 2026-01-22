@@ -7,15 +7,47 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Dependencies
+node_modules/
+
+# Vite / Front build
+dist/
+dist-ssr/
 *.local
+
+# Electron build outputs (MUY IMPORTANTE)
+release/
+out/
+build/
+dist-electron/
+.win-unpacked/
+*.blockmap
+
+# Electron/Windows artifacts (por si se salen de carpetas)
+*.exe
+*.msi
+*.appx
+*.dll
+*.pdb
+*.pak
+*.dat
+*.bin
+
+# electron-builder generated configs
+builder-effective-config.yaml
+builder-debug.yml
+latest.yml
+
+# Cache / tooling
+.cache/
+.tmp/
+temp/
+coverage/
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
 *.ntvs*

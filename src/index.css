@@ -155,3 +155,53 @@
     color: rgb(var(--muted));
   }
 }
+
+/* ✅ MODO CUADRADO: quita redondeos globales */
+.no-round,
+.no-round * {
+  border-radius: 0 !important;
+}
+/* =========================
+   PRINT: SOLO TICKET (58mm)
+   ========================= */
+
+   @page {
+    size: 58mm auto; /* cambia a 80mm si tu impresora es 80mm */
+    margin: 0;
+  }
+  
+  @media print {
+    html, body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 58mm !important; /* 80mm si aplica */
+    }
+  
+    /* ocultar todo */
+    body * {
+      visibility: hidden !important;
+    }
+  
+    /* mostrar solo el ticket */
+    #ticket-print,
+    #ticket-print * {
+      visibility: visible !important;
+    }
+  
+    /* pegar el ticket arriba */
+    #ticket-print {
+      position: absolute !important;
+      left: 0 !important;
+      top: 0 !important;
+      width: 58mm !important; /* 80mm si aplica */
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+  
+    /* evitar cortes raros */
+    .no-break {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+  }
+  

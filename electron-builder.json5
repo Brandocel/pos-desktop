@@ -6,7 +6,7 @@
   asarUnpack: [
     "**/node_modules/better-sqlite3/**"
   ],
-  "productName": "YourAppName",
+  "productName": "Pollo Pirata P.V",
   "directories": {
     "output": "release/${version}"
   },
