@@ -1,5 +1,5 @@
 // src/pos/screens/CutScreen.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useUi } from "../pos/hooks/useUi";
 import { getTodayCancunISO } from "../pos/utils/dates";
 import { PdfPreviewDrawer } from "../pos/components/PdfPreviewDrawer";
@@ -15,6 +15,9 @@ import {
   calcPolloTotalsFromProducts,
   calcPayTotalsFromTickets,
   CutPayTotals,
+  resolvePolloTotals,
+  getPolloTotalsFromBackend,
+  debugPolloMismatch,
 } from "./cut/cutHelpers";
 
 // ✅ Ticket Drawer lateral
@@ -34,6 +37,9 @@ export function CutScreen({ onBack }: Props) {
   const [cutData, setCutData] = useState<
     Awaited<ReturnType<typeof window.api.salesSummary>>["data"] | null
   >(null);
+
+  // ✅ Ref para evitar spam de toasts
+  const lastMismatchToastKeyRef = useRef<string | null>(null);
 
   // ==========================
   // PDF
@@ -209,8 +215,14 @@ export function CutScreen({ onBack }: Props) {
   const grandTotal = useMemo(() => safeNum(cutData?.totals?.grand), [cutData]);
 
   const polloTotals = useMemo(() => {
-    return calcPolloTotalsFromProducts(products);
-  }, [products]);
+    // ✅ Calcular desde tickets (tiene TODOS los items incluyendo incluidos en paquete)
+    // No desde products (que excluye "Incluido en paquete")
+    return resolvePolloTotals({
+      cutData,
+      tickets: cutData?.tickets ?? [],
+      products,
+    });
+  }, [cutData, products]);
 
   const ticketsCount = useMemo(() => safeNum(cutData?.tickets?.length), [cutData]);
 
@@ -218,6 +230,45 @@ export function CutScreen({ onBack }: Props) {
   const payTotals: CutPayTotals = useMemo(() => {
     return calcPayTotalsFromTickets(cutData?.tickets ?? []);
   }, [cutData]);
+
+  // ✅ Toast cuando NO cuadra UI vs DB (sin spam)
+  useEffect(() => {
+    if (!cutData) return;
+
+    // DB: lo que dice backend (polloTotals real)
+    const backendTotals = getPolloTotalsFromBackend(cutData);
+
+    // Si no hay backendTotals, no comparamos (no hay "verdad" DB disponible)
+    if (!backendTotals) return;
+
+    const diff =
+      Math.abs(safeNum(backendTotals.enteros) - safeNum(polloTotals.enteros)) +
+      Math.abs(safeNum(backendTotals.medios) - safeNum(polloTotals.medios)) +
+      Math.abs(safeNum(backendTotals.cuartos) - safeNum(polloTotals.cuartos));
+
+    if (diff <= 0) return;
+
+    // anti-spam key (solo si cambia)
+    const key = JSON.stringify({
+      db: backendTotals,
+      ui: polloTotals,
+      from: cutFrom,
+      to: cutUseRange ? cutTo : cutFrom,
+      tickets: safeNum(cutData?.tickets?.length),
+    });
+
+    if (key === lastMismatchToastKeyRef.current) return;
+    lastMismatchToastKeyRef.current = key;
+
+    // console warn
+    debugPolloMismatch({ cutData, tickets: cutData?.tickets ?? [] });
+
+    // ✅ console.warn (sin toast)
+    // eslint-disable-next-line no-console
+    console.warn(
+      `⚠️ Conteo de POLLOS no cuadra (UI vs DB). DB: E${backendTotals.enteros}/M${backendTotals.medios}/C${backendTotals.cuartos} — UI: E${polloTotals.enteros}/M${polloTotals.medios}/C${polloTotals.cuartos}. Revisa tickets/items o incluidos.`
+    );
+  }, [cutData, polloTotals, cutFrom, cutTo, cutUseRange]);
 
   const rangeLabel = useMemo(() => {
     const to = cutUseRange ? cutTo : cutFrom;

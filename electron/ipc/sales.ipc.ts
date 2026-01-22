@@ -119,45 +119,45 @@ function buildSimpleCountsFromRows(
     const cat = (r.item_category ?? "").toLowerCase();
     const qty = safeNum(r.item_qty);
 
-    // Ignorar "Incluido en paquete" (ya contado en paquetes/especialidades/miércoles)
-    if (cat.includes("incluido")) {
-      // Pero sí contabilizar los pollos
-      if (name.includes("pollo")) {
-        if (name.includes("1/4")) {
-          counts.pollo_cuarto += qty;
-        } else if (name.includes("1/2")) {
-          counts.pollo_medio += qty;
-        } else {
-          counts.pollo_entero += qty;
-        }
-        counts.pollo_total += qty;
+  for (const r of rows) {
+    const name = (r.item_name ?? "").toLowerCase();
+    const cat = (r.item_category ?? "").toLowerCase();
+    const qty = safeNum(r.item_qty);
+
+    // Ignorar "Incluido en paquete" para TODAS las categorías (NO contar en paquetes, extras, etc)
+    // pero SÍ contar en pollos (son pollos reales que se usaron)
+    const isIncluded = cat.includes("incluido");
+
+    if (isIncluded && !name.includes("pollo")) {
+      // No es un pollo incluido, ignorar completamente
+      continue;
+    }
+
+    if (!isIncluded) {
+      // Categorías directas (solo si NO es incluido)
+      if (cat.includes("paquetes")) {
+        counts.paquetes += qty;
+        continue;
       }
-      continue;
+      if (cat.includes("especialidades")) {
+        counts.especialidades += qty;
+        continue;
+      }
+      if (cat.includes("miércoles") || cat.includes("miercoles")) {
+        counts.miercoles += qty;
+        continue;
+      }
+      if (cat.includes("extras")) {
+        counts.extras += qty;
+        continue;
+      }
+      if (cat.includes("desechables")) {
+        counts.desechables += qty;
+        continue;
+      }
     }
 
-    // Categorías directas
-    if (cat.includes("paquetes")) {
-      counts.paquetes += qty;
-      continue;
-    }
-    if (cat.includes("especialidades")) {
-      counts.especialidades += qty;
-      continue;
-    }
-    if (cat.includes("miércoles") || cat.includes("miercoles")) {
-      counts.miercoles += qty;
-      continue;
-    }
-    if (cat.includes("extras")) {
-      counts.extras += qty;
-      continue;
-    }
-    if (cat.includes("desechables")) {
-      counts.desechables += qty;
-      continue;
-    }
-
-    // Pollos por nombre (pollos individuales)
+    // Pollos por nombre (pollos individuales O incluidos en paquete)
     if (name.includes("pollo")) {
       if (name.includes("1/4")) {
         counts.pollo_cuarto += qty;
@@ -167,11 +167,16 @@ function buildSimpleCountsFromRows(
         counts.pollo_entero += qty;
       }
       counts.pollo_total += qty;
-      counts.pollos_individuales += qty;
+      if (!isIncluded) {
+        counts.pollos_individuales += qty;
+      }
       continue;
     }
 
-    counts.otros += qty;
+    if (!isIncluded) {
+      counts.otros += qty;
+    }
+  }
   }
 
   return counts;
@@ -519,7 +524,7 @@ export function registerSalesIpc() {
       const category = row.item_category || "Sin categoría";
       const nameLower = (row.item_name || "").toLowerCase();
 
-      // Conteo de pollos totales (incluye incluidos)
+      // Conteo de pollos totales (TODOS, incluyendo incluidos en paquete)
       if (nameLower.includes("pollo")) {
         if (nameLower.includes("1/4")) {
           polloTotals.cuartos += safeNum(row.item_qty);
