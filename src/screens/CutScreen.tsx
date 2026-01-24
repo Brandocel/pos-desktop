@@ -180,7 +180,6 @@ export function CutScreen({ onBack }: Props) {
     const polloResolved = resolvePolloTotals({
       cutData,
       tickets: cutData?.tickets ?? [],
-      products: cutData?.products ?? [],
     });
 
     const pay = calcPayTotalsFromTickets(cutData?.tickets ?? []);
@@ -257,9 +256,8 @@ export function CutScreen({ onBack }: Props) {
     return resolvePolloTotals({
       cutData,
       tickets: cutData?.tickets ?? [],
-      products,
     });
-  }, [cutData, products]);
+  }, [cutData]);
 
   // ✅✅✅ CONSOLE LOG: imprimir EXACTO lo que trae DB (backend) vs UI (resuelto)
   // (sin spam, solo cuando cambie el corte o cambien los totales)
@@ -445,6 +443,8 @@ export function CutScreen({ onBack }: Props) {
             polloTotals={polloTotals}
             products={products}
             payTotals={payTotals}
+            tickets={cutData?.tickets}
+            cutData={cutData}
           />
         ) : (
           <div className="text-xs text-zinc-600">No hay datos para mostrar.</div>
