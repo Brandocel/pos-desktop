@@ -94,7 +94,11 @@ export function SalesScreen() {
   const [pickedFlavor, setPickedFlavor] = useState("");
 
   // Custom options modal
-  type CustomOptionsState = { open: boolean; product?: Product; customOptions?: { label: string; options: Array<{ name: string; extraName: string }> } };
+  type CustomOptionsState = {
+    open: boolean;
+    product?: Product;
+    customOptions?: { label: string; options: Array<{ name: string; extraName: string }> };
+  };
   const [customOptionsModal, setCustomOptionsModal] = useState<CustomOptionsState>({ open: false });
   const [pickedCustomOption, setPickedCustomOption] = useState("");
   const [pendingCustomOption, setPendingCustomOption] = useState<string | undefined>(undefined);
@@ -104,9 +108,69 @@ export function SalesScreen() {
   const [desNote, setDesNote] = useState<string>("");
   const [pickedFlavors, setPickedFlavors] = useState<string[]>([]);
   const [flavorSlots, setFlavorSlots] = useState(1);
-  const [] = useState(false);
-  const [] = useState("");
-  const [] = useState<number>(0);
+
+  // ==========================
+  // ✅ Helpers para opciones custom (Pirata / Paquete Pirata / acentos)
+  // ==========================
+  function normKey(s: string) {
+    return (s ?? "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // quitar acentos
+      .replace(/\s+/g, " ");
+  }
+
+  function simplifyProductName(name: string) {
+    let n = (name ?? "").trim();
+    n = n.replace(/^paquete\s+/i, "");
+    n = n.replace(/^super\s+/i, "");
+    n = n.replace(/^súper\s+/i, "");
+    n = n.replace(/\s+/g, " ").trim();
+    return n;
+  }
+
+  const customOptionsIndex = useMemo(() => {
+    const idx = new Map<
+      string,
+      { label: string; options: Array<{ name: string; extraName: string }> }
+    >();
+
+    Object.entries(productCustomOptions).forEach(([key, val]) => {
+      idx.set(normKey(key), val);
+    });
+
+    return idx;
+  }, []);
+
+  function getCustomOptionsForProduct(productName?: string) {
+    if (!productName) return undefined;
+
+    // 1) exacto
+    const direct = (productCustomOptions as any)[productName];
+    if (direct) return direct;
+
+    // 2) normalizado
+    const byNorm = customOptionsIndex.get(normKey(productName));
+    if (byNorm) return byNorm;
+
+    // 3) quitando "Paquete", "Súper", etc.
+    const simp = simplifyProductName(productName);
+    const bySimp = (productCustomOptions as any)[simp];
+    if (bySimp) return bySimp;
+
+    const bySimpNorm = customOptionsIndex.get(normKey(simp));
+    if (bySimpNorm) return bySimpNorm;
+
+    return undefined;
+  }
+
+  function getPrettyCustomOptionLabel(baseName?: string, extraName?: string) {
+    if (!baseName || !extraName) return "";
+    const opts = getCustomOptionsForProduct(baseName);
+    const found = opts?.options?.find((o: { extraName: string; }) => o.extraName === extraName);
+    return found?.name || extraName;
+  }
 
   // ===== Cargar catálogo
   useEffect(() => {
@@ -156,10 +220,7 @@ export function SalesScreen() {
     return filteredCatalog.filter((p) => cats.includes(p.category));
   }, [filteredCatalog, category]);
 
-  const productsExtras = useMemo(
-    () => filteredCatalog.filter((p) => p.category === "Extras"),
-    [filteredCatalog]
-  );
+  const productsExtras = useMemo(() => filteredCatalog.filter((p) => p.category === "Extras"), [filteredCatalog]);
 
   function clearSale() {
     clear();
@@ -170,6 +231,7 @@ export function SalesScreen() {
     setSelectedTicketKey(null);
     setDesAmount(0);
     setDesNote("");
+    setPendingCustomOption(undefined);
   }
 
   function polloUnitsFromName(name: string) {
@@ -191,8 +253,8 @@ export function SalesScreen() {
     setLastTappedProductId(product.id);
     window.setTimeout(() => setLastTappedProductId(null), 240);
 
-    // Check if product has custom options (like Pirata with puré/espagueti choice)
-    const customOpts = productCustomOptions[product.name];
+    // ✅ Custom options robusto (Pirata / Paquete Pirata)
+    const customOpts = getCustomOptionsForProduct(product.name);
     if (customOpts) {
       setPickedCustomOption(customOpts.options[0]?.extraName || "");
       setCustomOptionsModal({ open: true, product, customOptions: customOpts });
@@ -235,10 +297,8 @@ export function SalesScreen() {
     const flavorLabel = chosen.length > 0 ? chosen.join(" / ") : "Sin sabor";
     const flavorValue = chosen.length > 0 ? chosen.join(" | ") : undefined;
 
-    // Add custom option label if present
-    const customOptLabel = pendingCustomOption 
-      ? ` (${productCustomOptions[p.name]?.options.find(o => o.extraName === pendingCustomOption)?.name || pendingCustomOption})`
-      : "";
+    // ✅ etiqueta bonita de extra
+    const customOptLabel = pendingCustomOption ? ` (${getPrettyCustomOptionLabel(p.name, pendingCustomOption)})` : "";
 
     const display = `${p.name} - ${flavorLabel}${customOptLabel}${suffixPromo}`;
     const key = `${p.id}__${flavorValue ?? "nosabor"}__${pendingCustomOption || "noopt"}__${isPromo ? "promo" : "normal"}`;
@@ -250,12 +310,12 @@ export function SalesScreen() {
       qty: 1,
       price: p.price,
       subtotal: p.price,
-      meta: { 
-        flavor: flavorValue, 
-        flavorList: chosen, 
-        customOption: pendingCustomOption, 
-        promo: isPromo, 
-        category: p.category 
+      meta: {
+        flavor: flavorValue,
+        flavorList: chosen,
+        customOption: pendingCustomOption,
+        promo: isPromo,
+        category: p.category,
       },
     });
 
@@ -305,7 +365,7 @@ export function SalesScreen() {
     }
 
     // If no flavor required, add directly
-    const optName = customOptionsModal.customOptions?.options.find(o => o.extraName === pickedCustomOption)?.name || pickedCustomOption;
+    const optName = getPrettyCustomOptionLabel(p.name, pickedCustomOption);
     const display = `${p.name} - ${optName}`;
     const key = `${p.id}__${pickedCustomOption}`;
 
@@ -700,6 +760,14 @@ export function SalesScreen() {
                                     Sabor: <b>{item.meta.flavor}</b>
                                   </span>
                                 ) : null}
+
+                                {/* ✅ Chip de Extra (bonito) */}
+                                {item.meta?.customOption ? (
+                                  <span className={chip}>
+                                    Extra: <b>{getPrettyCustomOptionLabel(item.baseName, item.meta.customOption)}</b>
+                                  </span>
+                                ) : null}
+
                                 {item.meta?.promo ? <span className={chipPromo}>PROMO</span> : null}
                               </div>
                             </div>
