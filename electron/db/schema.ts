@@ -127,7 +127,7 @@ export const packageIncludes = [
   },
   {
     packageName: "Pirata",
-    extras: [{ name: "1 pollo", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }, { name: "Postre", qty: 1 }],
+    extras: [{ name: "1 pollo", qty: 1 }, { name: "Purée de papa", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }, { name: "Postre", qty: 1 }],
   },
   {
     packageName: "Taquitos",
