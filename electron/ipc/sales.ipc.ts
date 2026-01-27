@@ -21,6 +21,25 @@ import crypto from "crypto";
  *    - break-inside avoid
  *    - thead repetible
  *    - cards cambian a 2 columnas en impresión
+ *
+ * ✅ NUEVO (update 1):
+ * 5) Corte PDF más detallado:
+ *    - Desglose de EXTRAS/Desechables (por producto) con totales y por método (efectivo / tarjeta)
+ *
+ * ✅ NUEVO (update 2):
+ * 6) Productos vendidos por método (efectivo / tarjeta):
+ *    - Paquetes, Especialidades, Miércoles, Pollos individuales
+ *    - PDF y summary incluyen el split
+ *
+ * ✅ NUEVO (update 3):
+ * 7) Consumo de pollos (porciones) por método (efectivo / tarjeta):
+ *    - Enteros / Medios / Cuartos / Total porciones / Equivalente
+ *    - PDF y summary incluyen el split
+ *
+ * ✅ NUEVO (update 4):
+ * 8) Desglose DETALLADO de Paquetes y Especialidades (por producto) con split (efectivo / tarjeta):
+ *    - Agrupa por “baseName” (antes de " - ") para que no se duplique por variaciones
+ *    - Se incluye en summary y en PDF
  */
 
 type SaleItemInput = {
@@ -95,6 +114,180 @@ function moneyMXN(v: number) {
 }
 
 // =======================
+// Tipos: pagos y agregados
+// =======================
+type Payment = "cash" | "card";
+
+type ExtraAgg = {
+  name: string;
+  qty: number;
+  total: number;
+  cashQty: number;
+  cashTotal: number;
+  cardQty: number;
+  cardTotal: number;
+};
+
+type SplitQty = {
+  totalQty: number;
+  cashQty: number;
+  cardQty: number;
+};
+
+type ProductsByPayment = {
+  paquetes: SplitQty;
+  especialidades: SplitQty;
+  miercoles: SplitQty;
+  pollos_individuales: SplitQty;
+};
+
+function emptySplit(): SplitQty {
+  return { totalQty: 0, cashQty: 0, cardQty: 0 };
+}
+
+function incSplit(target: SplitQty, qty: number, pm: Payment) {
+  const q = safeNum(qty);
+  target.totalQty += q;
+  if (pm === "cash") target.cashQty += q;
+  else target.cardQty += q;
+}
+
+// =======================
+// ✅ NUEVO: Pollo / Porciones por método (cash/card)
+// =======================
+type PolloByPayment = {
+  enteros: SplitQty;
+  medios: SplitQty;
+  cuartos: SplitQty;
+  porcionesTotal: SplitQty;
+  equivalenteTotal: {
+    total: number;
+    cash: number;
+    card: number;
+  };
+};
+
+function emptyPolloByPayment(): PolloByPayment {
+  return {
+    enteros: emptySplit(),
+    medios: emptySplit(),
+    cuartos: emptySplit(),
+    porcionesTotal: emptySplit(),
+    equivalenteTotal: { total: 0, cash: 0, card: 0 },
+  };
+}
+
+// =======================
+// ✅ NUEVO: Desglose DETALLADO de Paquetes y Especialidades (por producto) con split
+// =======================
+type MainItemAgg = {
+  name: string; // display
+  qty: number;
+  total: number;
+  cashQty: number;
+  cashTotal: number;
+  cardQty: number;
+  cardTotal: number;
+};
+
+function pushMainAgg(
+  map: Map<string, MainItemAgg>,
+  name: string,
+  qty: number,
+  subtotal: number,
+  pm: Payment
+) {
+  const key = normKey(name);
+  if (!map.has(key)) {
+    map.set(key, {
+      name,
+      qty: 0,
+      total: 0,
+      cashQty: 0,
+      cashTotal: 0,
+      cardQty: 0,
+      cardTotal: 0,
+    });
+  }
+
+  const row = map.get(key)!;
+  row.qty += safeNum(qty);
+  row.total += safeNum(subtotal);
+
+  if (pm === "cash") {
+    row.cashQty += safeNum(qty);
+    row.cashTotal += safeNum(subtotal);
+  } else {
+    row.cardQty += safeNum(qty);
+    row.cardTotal += safeNum(subtotal);
+  }
+}
+
+function sortMainAgg(list: MainItemAgg[]) {
+  return [...list].sort((a, b) => {
+    const d1 = safeNum(b.total) - safeNum(a.total);
+    if (d1 !== 0) return d1;
+    return safeNum(b.qty) - safeNum(a.qty);
+  });
+}
+
+// =======================
+// ✅ Desglose por método (cash/card) para Extras/Desechables (DETALLADO)
+// =======================
+function isExtraOrDesechableCategory(catRaw: string) {
+  const c = normText(catRaw);
+  return c.includes("extras") || c.includes("desechables");
+}
+
+function isDesechableName(name: string) {
+  const n = normText(name);
+  return n.includes("desechable") || n.includes("desechables");
+}
+
+function pushExtraAgg(
+  map: Map<string, ExtraAgg>,
+  name: string,
+  qty: number,
+  subtotal: number,
+  paymentMethod: Payment
+) {
+  const key = normKey(name);
+
+  if (!map.has(key)) {
+    map.set(key, {
+      name,
+      qty: 0,
+      total: 0,
+      cashQty: 0,
+      cashTotal: 0,
+      cardQty: 0,
+      cardTotal: 0,
+    });
+  }
+
+  const row = map.get(key)!;
+  row.qty += safeNum(qty);
+  row.total += safeNum(subtotal);
+
+  if (paymentMethod === "cash") {
+    row.cashQty += safeNum(qty);
+    row.cashTotal += safeNum(subtotal);
+  } else {
+    row.cardQty += safeNum(qty);
+    row.cardTotal += safeNum(subtotal);
+  }
+}
+
+function sortExtrasAgg(list: ExtraAgg[]) {
+  // Orden: más vendido por total, luego qty
+  return [...list].sort((a, b) => {
+    const d1 = safeNum(b.total) - safeNum(a.total);
+    if (d1 !== 0) return d1;
+    return safeNum(b.qty) - safeNum(a.qty);
+  });
+}
+
+// =======================
 // Pollo: detección y conversión
 // =======================
 type PolloKind = "entero" | "medio" | "cuarto";
@@ -115,6 +308,44 @@ function polloEquivalent(kind: PolloKind, qty: number) {
 }
 
 // =======================
+// ✅ NUEVO: construir pollo por método (cash/card)
+// Regla: solo cuenta pollo si category es Pollos o Incluido en paquete
+// =======================
+function buildPolloByPaymentFromRows(
+  rows: Array<{ item_name: string; item_qty: number; item_category?: string; payment_method: string }>
+): PolloByPayment {
+  const out = emptyPolloByPayment();
+
+  for (const r of rows) {
+    const name = r.item_name ?? "";
+    const qty = safeNum(r.item_qty);
+    const catRaw = r.item_category ?? "Sin categoría";
+    const catN = normText(catRaw);
+    const pm: Payment = r.payment_method === "card" ? "card" : "cash";
+
+    const kind = getPolloKindFromName(name);
+    if (!kind) continue;
+
+    const isIncluded = catN.includes("incluido");
+    const isPolloCategory = catN === "pollos" || catN.includes("pollos");
+    if (!(isPolloCategory || isIncluded)) continue;
+
+    if (kind === "entero") incSplit(out.enteros, qty, pm);
+    if (kind === "medio") incSplit(out.medios, qty, pm);
+    if (kind === "cuarto") incSplit(out.cuartos, qty, pm);
+
+    incSplit(out.porcionesTotal, qty, pm);
+
+    const eq = polloEquivalent(kind, qty);
+    out.equivalenteTotal.total += eq;
+    if (pm === "cash") out.equivalenteTotal.cash += eq;
+    else out.equivalenteTotal.card += eq;
+  }
+
+  return out;
+}
+
+// =======================
 // Ajuste de salsas (tu lógica)
 // =======================
 function polloUnitsFromName(name: string) {
@@ -132,7 +363,7 @@ function normalizeSalsas(extras: PackageExtra[]): PackageExtra[] {
 
   const desiredSalsas = Math.max(1, Math.ceil(polloUnits));
   const cloned = extras.map((e) => ({ ...e }));
-  cloned[salsaIdx] = { ...cloned[salsaIdx], qty: desiredSalsas };
+  cloned[salsaIdx] = { ...cloned[salsaIdx], qty: safeNum(desiredSalsas) };
   return cloned;
 }
 
@@ -151,8 +382,6 @@ const packageIncludesIndex = (() => {
 
 /**
  * ✅ Ahora busca la receta por nombre NORMALIZADO
- * Esto corrige el bug de:
- * "Peninsular 1 Pollo" (UI) vs "Peninsular 1 pollo" (schema)
  */
 function getPackageExtras(_db: any, packageName: string, baseName?: string, customOption?: string): PackageExtra[] {
   const base = (baseName || packageName || "").trim();
@@ -191,7 +420,7 @@ type CountSummary = {
   pollo_cuarto: number;
 
   // Totales
-  pollo_porciones_total: number; // enteros + medios + cuartos
+  pollo_porciones_total: number; // enteros + medios + cuartos (en tu sistema, suma de qty tal cual)
   pollo_equivalente_total: number; // equivalente en pollos completos
 
   // Otros
@@ -200,18 +429,7 @@ type CountSummary = {
   otros: number;
 };
 
-/**
- * ✅ REGLA CLAVE PARA NO CONTAR DOBLE:
- * Solo consideramos pollo si:
- *  - category es "Pollos" (pollo vendido directo)
- *  - o category contiene "incluido" (pollo insertado como incluido)
- *
- * Porque Especialidades se llaman "Veracruz 1 pollo" y eso NO debe contarse
- * como pollo: el pollo real viene en el item "Incluido en paquete".
- */
-function buildCountsFromRows(
-  rows: Array<{ item_name: string; item_qty: number; item_category?: string }>
-): CountSummary {
+function buildCountsFromRows(rows: Array<{ item_name: string; item_qty: number; item_category?: string }>): CountSummary {
   const counts: CountSummary = {
     paquetes: 0,
     especialidades: 0,
@@ -289,6 +507,56 @@ function buildCountsFromRows(
 }
 
 // =======================
+// ✅ Productos vendidos por método (cash/card)
+// =======================
+function buildProductsByPaymentFromRows(
+  rows: Array<{ item_name: string; item_qty: number; item_category?: string; payment_method: string; item_price?: number }>
+): ProductsByPayment {
+  const out: ProductsByPayment = {
+    paquetes: emptySplit(),
+    especialidades: emptySplit(),
+    miercoles: emptySplit(),
+    pollos_individuales: emptySplit(),
+  };
+
+  for (const r of rows) {
+    const name = r.item_name ?? "";
+    const catRaw = r.item_category ?? "Sin categoría";
+    const catN = normText(catRaw);
+    const qty = safeNum(r.item_qty);
+    const pm: Payment = r.payment_method === "card" ? "card" : "cash";
+
+    const isIncluded = catN.includes("incluido");
+    if (isIncluded) continue; // nunca contamos incluidos
+
+    const isPolloCategory = catN === "pollos" || catN.includes("pollos");
+    const polloKind = getPolloKindFromName(name);
+
+    // ✅ Pollos individuales vendidos (solo categoría Pollos)
+    if (polloKind && isPolloCategory) {
+      incSplit(out.pollos_individuales, qty, pm);
+      continue;
+    }
+
+    // ✅ Paquetes / Especialidades / Miércoles (solo categoría)
+    if (catN.includes("paquetes")) {
+      incSplit(out.paquetes, qty, pm);
+      continue;
+    }
+    if (catN.includes("especialidades")) {
+      incSplit(out.especialidades, qty, pm);
+      continue;
+    }
+    if (catN.includes("miercoles") || catN.includes("miércoles")) {
+      incSplit(out.miercoles, qty, pm);
+      continue;
+    }
+  }
+
+  return out;
+}
+
+// =======================
 // Seguro al guardar: validar incluidos
 // =======================
 function expectedIncludedFromMainItems(mainItems: SaleItemInput[]) {
@@ -299,13 +567,7 @@ function expectedIncludedFromMainItems(mainItems: SaleItemInput[]) {
     if (qtyMain <= 0) continue;
 
     const catN = normText(it.category ?? "Sin categoría");
-
-    const isBundle =
-      catN === "paquetes" ||
-      catN === "especialidades" ||
-      catN === "miercoles" ||
-      catN === "miércoles";
-
+    const isBundle = catN === "paquetes" || catN === "especialidades" || catN === "miercoles" || catN === "miércoles";
     if (!isBundle) continue;
 
     const baseName = (it.name.split(" - ")[0]?.trim() || it.name).trim();
@@ -346,7 +608,27 @@ function compareExpectedVsActual(expected: Map<string, number>, actual: Map<stri
 }
 
 // =======================
-// PDF HTML anti-cortes
+// ✅ ICONOS (SVG inline estilo Lucide) — compatibles con HTML/PDF
+// =======================
+function svgIcon(pathD: string) {
+  return `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="${pathD}"/></svg>`;
+}
+const ICONS = {
+  receipt: svgIcon(
+    "M5 3h14v18l-2-1-2 1-2-1-2 1-2-1-2 1-2-1-2 1V3zm4 4h6m-6 4h10m-10 4h8"
+  ),
+  wallet: svgIcon(
+    "M20 7H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zm0 0V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v2m16 6h-5"
+  ),
+  card: svgIcon("M3 7h18M5 11h14M7 15h6M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"),
+  list: svgIcon("M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"),
+  package: svgIcon("M21 8l-9-5-9 5 9 5 9-5zm-18 2v10l9 5 9-5V10"),
+  chicken: svgIcon("M9 10c0 3 2 5 5 5s5-2 5-5-2-5-5-5-5 2-5 5zm-5 6c1.5 0 3-1 4-2"),
+  plus: svgIcon("M12 5v14m-7-7h14"),
+};
+
+// =======================
+// PDF HTML (UPDATED)
 // =======================
 function buildCutPdfHtml(args: {
   rangeLabel: string;
@@ -354,22 +636,32 @@ function buildCutPdfHtml(args: {
   to: string;
   totals: { grand: number; tickets: number; cash: number; card: number };
   counts: CountSummary;
+  productsByPayment: ProductsByPayment;
+  polloByPayment: PolloByPayment;
+  extrasDetailed: ExtraAgg[];
+
+  // ✅ NUEVO: detalle por producto
+  paquetesDetailed: MainItemAgg[];
+  especialidadesDetailed: MainItemAgg[];
 }) {
-  const { rangeLabel, from, to, totals, counts } = args;
+  const {
+    rangeLabel,
+    from,
+    to,
+    totals,
+    counts,
+    productsByPayment,
+    polloByPayment,
+    extrasDetailed,
+    paquetesDetailed,
+    especialidadesDetailed,
+  } = args;
 
-  const productRows: Array<[string, number]> = [
-    ["Paquetes vendidos", counts.paquetes],
-    ["Especialidades vendidas", counts.especialidades],
-    ["Miércoles vendidos", counts.miercoles],
-    ["Pollos individuales vendidos", counts.pollos_individuales],
-  ];
-
-  const polloRows: Array<[string, number | string]> = [
-    ["Porciones (enteros + medios + cuartos)", counts.pollo_porciones_total],
-    ["Equivalente (pollos completos)", counts.pollo_equivalente_total.toFixed(2)],
-    ["Enteros (1 pollo)", counts.pollo_entero],
-    ["Medios (1/2 pollo)", counts.pollo_medio],
-    ["Cuartos (1/4 pollo)", counts.pollo_cuarto],
+  const productRows: Array<[string, SplitQty]> = [
+    ["Paquetes vendidos", productsByPayment.paquetes],
+    ["Especialidades vendidas", productsByPayment.especialidades],
+    ["Miércoles vendidos", productsByPayment.miercoles],
+    ["Pollos individuales vendidos", productsByPayment.pollos_individuales],
   ];
 
   const otherRows: Array<[string, number]> = [
@@ -377,6 +669,29 @@ function buildCutPdfHtml(args: {
     ["Desechables (sin incluidos)", counts.desechables],
     ["Otros", counts.otros],
   ];
+
+  const extrasOnly = extrasDetailed.filter((e) => !isDesechableName(e.name) && safeNum(e.total) > 0);
+  const desechablesOnly = extrasDetailed.filter((e) => isDesechableName(e.name) && safeNum(e.total) > 0);
+
+  const extrasGrand = extrasDetailed.reduce((a, e) => a + safeNum(e.total), 0);
+  const extrasCash = extrasDetailed.reduce((a, e) => a + safeNum(e.cashTotal), 0);
+  const extrasCard = extrasDetailed.reduce((a, e) => a + safeNum(e.cardTotal), 0);
+
+  const pkSubtotal = {
+    qty: paquetesDetailed.reduce((a, x) => a + safeNum(x.qty), 0),
+    total: paquetesDetailed.reduce((a, x) => a + safeNum(x.total), 0),
+    cash: paquetesDetailed.reduce((a, x) => a + safeNum(x.cashTotal), 0),
+    card: paquetesDetailed.reduce((a, x) => a + safeNum(x.cardTotal), 0),
+  };
+
+  const espSubtotal = {
+    qty: especialidadesDetailed.reduce((a, x) => a + safeNum(x.qty), 0),
+    total: especialidadesDetailed.reduce((a, x) => a + safeNum(x.total), 0),
+    cash: especialidadesDetailed.reduce((a, x) => a + safeNum(x.cashTotal), 0),
+    card: especialidadesDetailed.reduce((a, x) => a + safeNum(x.cardTotal), 0),
+  };
+
+  const genDate = new Date().toLocaleString("es-MX");
 
   return `<!doctype html>
 <html>
@@ -388,37 +703,48 @@ function buildCutPdfHtml(args: {
     html, body { margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; padding: 18px; color: #111; }
 
-    .top { display:flex; justify-content:space-between; align-items:flex-start; gap: 16px; }
-    .brand { font-size: 18px; font-weight: 800; }
+    .muted { color: #666; }
+    .mono { font-variant-numeric: tabular-nums; }
+    .row { display:flex; align-items:flex-start; justify-content:space-between; gap: 14px; }
+    .brand { font-size: 18px; font-weight: 900; letter-spacing: -0.2px; }
     .sub { font-size: 12px; color: #555; margin-top: 4px; line-height: 1.35; }
 
+    .i { width: 16px; height: 16px; stroke: #111; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; margin-right: 6px; }
+
     .cards { display:grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 14px; }
-    .card { border: 1px solid #ddd; border-radius: 12px; padding: 10px; background: #fff; }
-    .card .label { font-size: 11px; color: #555; }
-    .card .value { font-size: 16px; font-weight: 800; margin-top: 6px; }
+    .card { border: 1px solid #e5e5e5; border-radius: 12px; padding: 10px; background: #fff; }
+    .label { font-size: 11px; color: #555; display:flex; align-items:center; gap: 6px; }
+    .value { font-size: 16px; font-weight: 900; margin-top: 6px; }
 
     .section { margin-top: 18px; }
     .section-title {
-      font-size: 13px;
-      font-weight: 800;
-      color: #333;
+      font-size: 12px;
+      font-weight: 900;
+      color: #111;
       margin-bottom: 8px;
-      border-bottom: 2px solid #ddd;
-      padding-bottom: 4px;
+      border-bottom: 2px solid #eee;
+      padding-bottom: 6px;
+      display:flex;
+      align-items:center;
+      gap: 6px;
     }
 
     table { width: 100%; border-collapse: collapse; border: 1px solid #eee; border-radius: 10px; overflow: hidden; }
     thead th { background: #f7f7f7; }
     th, td { border-bottom: 1px solid #eee; padding: 9px 8px; font-size: 12px; }
-    th { text-align:left; color:#555; font-size: 11px; }
+    th { text-align:left; color:#555; font-size: 11px; font-weight: 800; }
     td:last-child, th:last-child { text-align:right; }
-    tr.total td { font-weight: 800; background: #f0f0f0; }
+    .right { text-align:right; }
+    tr.total td { font-weight: 900; background: #f2f2f2; }
+
+    .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .pill { display:inline-block; padding: 2px 8px; border: 1px solid #e5e5e5; border-radius: 999px; font-size: 10px; font-weight: 800; color:#333; background:#fafafa; }
 
     .footer { margin-top: 14px; font-size: 11px; color:#666; line-height: 1.35; }
 
     @page { size: A4; margin: 12mm; }
 
-    .card, .section, .top { break-inside: avoid; page-break-inside: avoid; }
+    .card, .section, .row { break-inside: avoid; page-break-inside: avoid; }
     table { break-inside: auto; page-break-inside: auto; }
     tr, td, th { break-inside: avoid; page-break-inside: avoid; }
     thead { display: table-header-group; }
@@ -427,87 +753,374 @@ function buildCutPdfHtml(args: {
     @media print {
       body { padding: 0; }
       .cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
-      .card .value { font-size: 15px; }
+      .value { font-size: 15px; }
     }
   </style>
 </head>
 <body>
-  <div class="top">
+  <div class="row">
     <div>
       <div class="brand">Pollo Pirata POS — Corte</div>
       <div class="sub">Rango: <b>${escapeHtml(rangeLabel)}</b></div>
       <div class="sub">Fechas: ${escapeHtml(from)} a ${escapeHtml(to)}</div>
-      <div class="sub">Generado: ${escapeHtml(new Date().toLocaleString("es-MX"))}</div>
+      <div class="sub">Generado: ${escapeHtml(genDate)}</div>
+    </div>
+    <div class="right">
+      <div class="sub muted">Desglose por método</div>
+      <div class="sub mono"><b>Efectivo:</b> ${escapeHtml(moneyMXN(totals.cash))}</div>
+      <div class="sub mono"><b>Tarjeta:</b> ${escapeHtml(moneyMXN(totals.card))}</div>
     </div>
   </div>
 
   <div class="cards">
     <div class="card">
-      <div class="label">Total vendido</div>
-      <div class="value">${escapeHtml(moneyMXN(totals.grand))}</div>
+      <div class="label">${ICONS.receipt}Total vendido</div>
+      <div class="value mono">${escapeHtml(moneyMXN(totals.grand))}</div>
     </div>
     <div class="card">
-      <div class="label">Efectivo</div>
-      <div class="value">${escapeHtml(moneyMXN(totals.cash))}</div>
+      <div class="label">${ICONS.wallet}Efectivo</div>
+      <div class="value mono">${escapeHtml(moneyMXN(totals.cash))}</div>
     </div>
     <div class="card">
-      <div class="label">Tarjeta</div>
-      <div class="value">${escapeHtml(moneyMXN(totals.card))}</div>
+      <div class="label">${ICONS.card}Tarjeta</div>
+      <div class="value mono">${escapeHtml(moneyMXN(totals.card))}</div>
     </div>
     <div class="card">
-      <div class="label">Tickets</div>
-      <div class="value">${escapeHtml(String(totals.tickets))}</div>
+      <div class="label">${ICONS.list}Tickets</div>
+      <div class="value mono">${escapeHtml(String(totals.tickets))}</div>
     </div>
     <div class="card">
-      <div class="label">Pollos (porciones)</div>
-      <div class="value">${escapeHtml(String(counts.pollo_porciones_total))}</div>
+      <div class="label">${ICONS.chicken}Pollos (porciones)</div>
+      <div class="value mono">${escapeHtml(String(counts.pollo_porciones_total))}</div>
     </div>
   </div>
 
   <div class="section">
-    <div class="section-title">📦 Productos Vendidos</div>
+    <div class="section-title">${ICONS.package}Productos vendidos (por método)</div>
     <table>
-      <thead><tr><th>Concepto</th><th>Cantidad</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Concepto</th>
+          <th class="right">Total</th>
+          <th class="right">Efectivo</th>
+          <th class="right">Tarjeta</th>
+        </tr>
+      </thead>
       <tbody>
-        ${productRows.map(([label, val]) => `
+        ${productRows
+          .map(
+            ([label, split]) => `
           <tr>
             <td>${escapeHtml(label)}</td>
-            <td>${escapeHtml(String(val))}</td>
-          </tr>`).join("")}
+            <td class="mono right">${escapeHtml(String(safeNum(split.totalQty)))}</td>
+            <td class="mono right">${escapeHtml(String(safeNum(split.cashQty)))}</td>
+            <td class="mono right">${escapeHtml(String(safeNum(split.cardQty)))}</td>
+          </tr>`
+          )
+          .join("")}
+        <tr class="total">
+          <td><b>Total (productos)</b></td>
+          <td class="mono right"><b>${escapeHtml(
+            String(
+              safeNum(productsByPayment.paquetes.totalQty) +
+                safeNum(productsByPayment.especialidades.totalQty) +
+                safeNum(productsByPayment.miercoles.totalQty) +
+                safeNum(productsByPayment.pollos_individuales.totalQty)
+            )
+          )}</b></td>
+          <td class="mono right"><b>${escapeHtml(
+            String(
+              safeNum(productsByPayment.paquetes.cashQty) +
+                safeNum(productsByPayment.especialidades.cashQty) +
+                safeNum(productsByPayment.miercoles.cashQty) +
+                safeNum(productsByPayment.pollos_individuales.cashQty)
+            )
+          )}</b></td>
+          <td class="mono right"><b>${escapeHtml(
+            String(
+              safeNum(productsByPayment.paquetes.cardQty) +
+                safeNum(productsByPayment.especialidades.cardQty) +
+                safeNum(productsByPayment.miercoles.cardQty) +
+                safeNum(productsByPayment.pollos_individuales.cardQty)
+            )
+          )}</b></td>
+        </tr>
       </tbody>
     </table>
   </div>
 
+  ${
+    paquetesDetailed.length
+      ? `
   <div class="section">
-    <div class="section-title">🍗 Consumo de Pollos</div>
+    <div class="section-title">${ICONS.package}Paquetes (detalle por producto)</div>
     <table>
-      <thead><tr><th>Tipo</th><th>Cantidad</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Paquete</th>
+          <th class="right">Cant.</th>
+          <th class="right">Total</th>
+          <th class="right">Efectivo</th>
+          <th class="right">Tarjeta</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${paquetesDetailed
+          .map(
+            (p) => `
+          <tr>
+            <td>${escapeHtml(p.name)}</td>
+            <td class="mono right">${escapeHtml(String(safeNum(p.qty)))}</td>
+            <td class="mono right">${escapeHtml(moneyMXN(p.total))}</td>
+            <td class="mono right">${escapeHtml(moneyMXN(p.cashTotal))}</td>
+            <td class="mono right">${escapeHtml(moneyMXN(p.cardTotal))}</td>
+          </tr>`
+          )
+          .join("")}
+        <tr class="total">
+          <td><b>Subtotal paquetes</b></td>
+          <td class="mono right"><b>${escapeHtml(String(pkSubtotal.qty))}</b></td>
+          <td class="mono right"><b>${escapeHtml(moneyMXN(pkSubtotal.total))}</b></td>
+          <td class="mono right"><b>${escapeHtml(moneyMXN(pkSubtotal.cash))}</b></td>
+          <td class="mono right"><b>${escapeHtml(moneyMXN(pkSubtotal.card))}</b></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>`
+      : `
+  <div class="section">
+    <div class="section-title">${ICONS.package}Paquetes (detalle por producto)</div>
+    <div class="sub muted">Sin paquetes vendidos en este rango.</div>
+  </div>`
+  }
+
+  ${
+    especialidadesDetailed.length
+      ? `
+  <div class="section">
+    <div class="section-title">${ICONS.package}Especialidades (detalle por producto)</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Especialidad</th>
+          <th class="right">Cant.</th>
+          <th class="right">Total</th>
+          <th class="right">Efectivo</th>
+          <th class="right">Tarjeta</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${especialidadesDetailed
+          .map(
+            (p) => `
+          <tr>
+            <td>${escapeHtml(p.name)}</td>
+            <td class="mono right">${escapeHtml(String(safeNum(p.qty)))}</td>
+            <td class="mono right">${escapeHtml(moneyMXN(p.total))}</td>
+            <td class="mono right">${escapeHtml(moneyMXN(p.cashTotal))}</td>
+            <td class="mono right">${escapeHtml(moneyMXN(p.cardTotal))}</td>
+          </tr>`
+          )
+          .join("")}
+        <tr class="total">
+          <td><b>Subtotal especialidades</b></td>
+          <td class="mono right"><b>${escapeHtml(String(espSubtotal.qty))}</b></td>
+          <td class="mono right"><b>${escapeHtml(moneyMXN(espSubtotal.total))}</b></td>
+          <td class="mono right"><b>${escapeHtml(moneyMXN(espSubtotal.cash))}</b></td>
+          <td class="mono right"><b>${escapeHtml(moneyMXN(espSubtotal.card))}</b></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>`
+      : `
+  <div class="section">
+    <div class="section-title">${ICONS.package}Especialidades (detalle por producto)</div>
+    <div class="sub muted">Sin especialidades vendidas en este rango.</div>
+  </div>`
+  }
+
+  <div class="section">
+    <div class="section-title">${ICONS.chicken}Consumo de pollos (por método)</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Tipo</th>
+          <th class="right">Total</th>
+          <th class="right">Efectivo</th>
+          <th class="right">Tarjeta</th>
+        </tr>
+      </thead>
       <tbody>
         <tr class="total">
           <td><b>Total porciones</b></td>
-          <td><b>${escapeHtml(String(counts.pollo_porciones_total))}</b></td>
+          <td class="mono right"><b>${escapeHtml(String(safeNum(polloByPayment.porcionesTotal.totalQty)))}</b></td>
+          <td class="mono right"><b>${escapeHtml(String(safeNum(polloByPayment.porcionesTotal.cashQty)))}</b></td>
+          <td class="mono right"><b>${escapeHtml(String(safeNum(polloByPayment.porcionesTotal.cardQty)))}</b></td>
         </tr>
-        ${polloRows.map(([label, val]) => `
-          <tr>
-            <td>${escapeHtml(String(label))}</td>
-            <td>${escapeHtml(String(val))}</td>
-          </tr>`).join("")}
+
+        <tr>
+          <td>Porciones (enteros + medios + cuartos)</td>
+          <td class="mono right">${escapeHtml(String(safeNum(polloByPayment.porcionesTotal.totalQty)))}</td>
+          <td class="mono right">${escapeHtml(String(safeNum(polloByPayment.porcionesTotal.cashQty)))}</td>
+          <td class="mono right">${escapeHtml(String(safeNum(polloByPayment.porcionesTotal.cardQty)))}</td>
+        </tr>
+
+        <tr>
+          <td>Equivalente (pollos completos)</td>
+          <td class="mono right">${escapeHtml(String(polloByPayment.equivalenteTotal.total.toFixed(2)))}</td>
+          <td class="mono right">${escapeHtml(String(polloByPayment.equivalenteTotal.cash.toFixed(2)))}</td>
+          <td class="mono right">${escapeHtml(String(polloByPayment.equivalenteTotal.card.toFixed(2)))}</td>
+        </tr>
+
+        <tr>
+          <td>Enteros (1 pollo)</td>
+          <td class="mono right">${escapeHtml(String(safeNum(polloByPayment.enteros.totalQty)))}</td>
+          <td class="mono right">${escapeHtml(String(safeNum(polloByPayment.enteros.cashQty)))}</td>
+          <td class="mono right">${escapeHtml(String(safeNum(polloByPayment.enteros.cardQty)))}</td>
+        </tr>
+
+        <tr>
+          <td>Medios (1/2 pollo)</td>
+          <td class="mono right">${escapeHtml(String(safeNum(polloByPayment.medios.totalQty)))}</td>
+          <td class="mono right">${escapeHtml(String(safeNum(polloByPayment.medios.cashQty)))}</td>
+          <td class="mono right">${escapeHtml(String(safeNum(polloByPayment.medios.cardQty)))}</td>
+        </tr>
+
+        <tr>
+          <td>Cuartos (1/4 pollo)</td>
+          <td class="mono right">${escapeHtml(String(safeNum(polloByPayment.cuartos.totalQty)))}</td>
+          <td class="mono right">${escapeHtml(String(safeNum(polloByPayment.cuartos.cashQty)))}</td>
+          <td class="mono right">${escapeHtml(String(safeNum(polloByPayment.cuartos.cardQty)))}</td>
+        </tr>
       </tbody>
     </table>
   </div>
 
   <div class="section">
-    <div class="section-title">📋 Otros Items</div>
+    <div class="section-title">${ICONS.list}Otros items</div>
     <table>
-      <thead><tr><th>Concepto</th><th>Cantidad</th></tr></thead>
+      <thead><tr><th>Concepto</th><th class="right">Cantidad</th></tr></thead>
       <tbody>
-        ${otherRows.map(([label, val]) => `
+        ${otherRows
+          .map(
+            ([label, val]) => `
           <tr>
             <td>${escapeHtml(String(label))}</td>
-            <td>${escapeHtml(String(val))}</td>
-          </tr>`).join("")}
+            <td class="mono right">${escapeHtml(String(val))}</td>
+          </tr>`
+          )
+          .join("")}
       </tbody>
     </table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">${ICONS.plus}Extras y desechables (detalle por producto)</div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="label"><span class="pill">TOTAL (Extras + Desechables)</span></div>
+        <div class="value mono">${escapeHtml(moneyMXN(extrasGrand))}</div>
+        <div class="sub mono"><b>Efectivo:</b> ${escapeHtml(moneyMXN(extrasCash))}</div>
+        <div class="sub mono"><b>Tarjeta:</b> ${escapeHtml(moneyMXN(extrasCard))}</div>
+      </div>
+
+      <div class="card">
+        <div class="label"><span class="pill">NOTA</span></div>
+        <div class="sub muted">Aquí se desglosa por producto vendido en categorías <b>Extras</b> y <b>Desechables</b>.</div>
+        <div class="sub muted">Los “Incluido en paquete” (gratis) nunca entran en este detalle.</div>
+      </div>
+    </div>
+
+    ${
+      extrasOnly.length
+        ? `
+    <div class="section" style="margin-top:12px;">
+      <div class="section-title">${ICONS.plus}Extras (detalle)</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th class="right">Cant.</th>
+            <th class="right">Total</th>
+            <th class="right">Efectivo</th>
+            <th class="right">Tarjeta</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${extrasOnly
+            .map(
+              (e) => `
+            <tr>
+              <td>${escapeHtml(e.name)}</td>
+              <td class="mono right">${escapeHtml(String(safeNum(e.qty)))}</td>
+              <td class="mono right">${escapeHtml(moneyMXN(e.total))}</td>
+              <td class="mono right">${escapeHtml(moneyMXN(e.cashTotal))}</td>
+              <td class="mono right">${escapeHtml(moneyMXN(e.cardTotal))}</td>
+            </tr>
+          `
+            )
+            .join("")}
+          <tr class="total">
+            <td><b>Subtotal extras</b></td>
+            <td class="mono right"><b>${escapeHtml(String(extrasOnly.reduce((a, x) => a + safeNum(x.qty), 0)))}</b></td>
+            <td class="mono right"><b>${escapeHtml(moneyMXN(extrasOnly.reduce((a, x) => a + safeNum(x.total), 0)))}</b></td>
+            <td class="mono right"><b>${escapeHtml(moneyMXN(extrasOnly.reduce((a, x) => a + safeNum(x.cashTotal), 0)))}</b></td>
+            <td class="mono right"><b>${escapeHtml(moneyMXN(extrasOnly.reduce((a, x) => a + safeNum(x.cardTotal), 0)))}</b></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`
+        : `
+    <div class="section" style="margin-top:12px;">
+      <div class="sub muted">Sin extras vendidos en este rango.</div>
+    </div>`
+    }
+
+    ${
+      desechablesOnly.length
+        ? `
+    <div class="section" style="margin-top:12px;">
+      <div class="section-title">${ICONS.plus}Desechables (detalle)</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th class="right">Cant.</th>
+            <th class="right">Total</th>
+            <th class="right">Efectivo</th>
+            <th class="right">Tarjeta</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${desechablesOnly
+            .map(
+              (e) => `
+            <tr>
+              <td>${escapeHtml(e.name)}</td>
+              <td class="mono right">${escapeHtml(String(safeNum(e.qty)))}</td>
+              <td class="mono right">${escapeHtml(moneyMXN(e.total))}</td>
+              <td class="mono right">${escapeHtml(moneyMXN(e.cashTotal))}</td>
+              <td class="mono right">${escapeHtml(moneyMXN(e.cardTotal))}</td>
+            </tr>
+          `
+            )
+            .join("")}
+          <tr class="total">
+            <td><b>Subtotal desechables</b></td>
+            <td class="mono right"><b>${escapeHtml(String(desechablesOnly.reduce((a, x) => a + safeNum(x.qty), 0)))}</b></td>
+            <td class="mono right"><b>${escapeHtml(moneyMXN(desechablesOnly.reduce((a, x) => a + safeNum(x.total), 0)))}</b></td>
+            <td class="mono right"><b>${escapeHtml(moneyMXN(desechablesOnly.reduce((a, x) => a + safeNum(x.cashTotal), 0)))}</b></td>
+            <td class="mono right"><b>${escapeHtml(moneyMXN(desechablesOnly.reduce((a, x) => a + safeNum(x.cardTotal), 0)))}</b></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`
+        : `
+    <div class="section" style="margin-top:12px;">
+      <div class="sub muted">Sin desechables vendidos en este rango.</div>
+    </div>`
+    }
   </div>
 
   <div class="footer">
@@ -575,17 +1188,11 @@ export function registerSalesIpc() {
 
         // 3) Insert included extras for bundles
         const catN = normText(it.category ?? "Sin categoría");
-
-        const isBundle =
-          catN === "paquetes" ||
-          catN === "especialidades" ||
-          catN === "miercoles" ||
-          catN === "miércoles";
+        const isBundle = catN === "paquetes" || catN === "especialidades" || catN === "miercoles" || catN === "miércoles";
 
         if (isBundle && qty > 0) {
           const baseName = (it.name.split(" - ")[0]?.trim() || it.name).trim();
 
-          // ✅ Debug de match de receta
           if (CUT_DEBUG) {
             dbg("[SALE][BUNDLE] buscando receta:", {
               itemName: it.name,
@@ -598,7 +1205,6 @@ export function registerSalesIpc() {
 
           const extras = getPackageExtras(db, it.name, baseName, it.customOption);
 
-          // ✅ Si NO hay extras, ES AQUÍ donde te estaba fallando por mismatch de nombre
           if (!extras.length) {
             console.warn("❌ [SALE] NO SE ENCONTRÓ packageIncludes para:", {
               itemName: it.name,
@@ -617,17 +1223,7 @@ export function registerSalesIpc() {
           for (const extra of extras) {
             const extraId = crypto.randomUUID();
             const extraQty = qty * safeNum(extra.qty);
-
-            insertItem.run(
-              extraId,
-              saleId,
-              extra.name,
-              extraQty,
-              0,
-              0,
-              "Incluido en paquete",
-              it.flavor ?? null
-            );
+            insertItem.run(extraId, saleId, extra.name, extraQty, 0, 0, "Incluido en paquete", it.flavor ?? null);
           }
         }
       }
@@ -683,7 +1279,6 @@ export function registerSalesIpc() {
     dbg("[CUT] start/end ISO:", start.toISOString(), end.toISOString());
     dbg("==============================");
 
-    // Items (para tickets + agregaciones)
     const rows = db
       .prepare(
         `SELECT
@@ -719,7 +1314,6 @@ export function registerSalesIpc() {
 
     dbg("[CUT] rows:", rows.length);
 
-    // Tickets
     const byTicket = new Map<
       string,
       {
@@ -739,11 +1333,26 @@ export function registerSalesIpc() {
       }
     >();
 
-    // Products aggregate (NO incluye incluidos gratis)
     const productsMap = new Map<string, { name: string; category: string; qty: number; subtotal: number }>();
     const categories = new Map<string, { qty: number; total: number }>();
 
+    const extrasAggMap = new Map<string, ExtraAgg>();
+
+    // ✅ NUEVO: maps para detalle de paquetes/especialidades
+    const paquetesAggMap = new Map<string, MainItemAgg>();
+    const especialidadesAggMap = new Map<string, MainItemAgg>();
+
     const countRows: Array<{ item_name: string; item_qty: number; item_category?: string }> = [];
+
+    // ✅ Para construir splits (productos + pollos) por método
+    const rowsForPaymentSplit: Array<{
+      item_name: string;
+      item_qty: number;
+      item_category?: string;
+      payment_method: string;
+      item_price: number;
+      item_subtotal: number;
+    }> = [];
 
     for (const row of rows) {
       const category = row.item_category || "Sin categoría";
@@ -751,6 +1360,14 @@ export function registerSalesIpc() {
       const catN = normText(category);
 
       countRows.push({ item_name: row.item_name, item_qty: safeNum(row.item_qty), item_category: category });
+      rowsForPaymentSplit.push({
+        item_name: row.item_name,
+        item_qty: safeNum(row.item_qty),
+        item_category: category,
+        payment_method: row.payment_method,
+        item_price: price,
+        item_subtotal: safeNum(row.item_subtotal),
+      });
 
       if (!byTicket.has(row.sale_id)) {
         byTicket.set(row.sale_id, {
@@ -772,8 +1389,8 @@ export function registerSalesIpc() {
         flavor: row.item_flavor ?? null,
       });
 
-      // Ignorar incluidos gratis para agregados por producto/categoría
       const isIncludedFree = catN.includes("incluido") && price === 0;
+
       if (!isIncludedFree) {
         const key = `${row.item_name}__${category}`;
         if (!productsMap.has(key)) productsMap.set(key, { name: row.item_name, category, qty: 0, subtotal: 0 });
@@ -785,10 +1402,25 @@ export function registerSalesIpc() {
         const cat = categories.get(category)!;
         cat.qty += safeNum(row.item_qty);
         cat.total += safeNum(row.item_subtotal);
+
+        const pm: Payment = row.payment_method === "card" ? "card" : "cash";
+
+        // ✅ Extras/Desechables
+        if (isExtraOrDesechableCategory(category)) {
+          pushExtraAgg(extrasAggMap, row.item_name, safeNum(row.item_qty), safeNum(row.item_subtotal), pm);
+        }
+
+        // ✅ NUEVO: detalle de Paquetes / Especialidades (por producto)
+        const baseName = (row.item_name.split(" - ")[0]?.trim() || row.item_name).trim();
+
+        if (catN.includes("paquetes")) {
+          pushMainAgg(paquetesAggMap, baseName, safeNum(row.item_qty), safeNum(row.item_subtotal), pm);
+        } else if (catN.includes("especialidades")) {
+          pushMainAgg(especialidadesAggMap, baseName, safeNum(row.item_qty), safeNum(row.item_subtotal), pm);
+        }
       }
     }
 
-    // Totales confiables desde sales
     const totalsRow = db
       .prepare(
         `SELECT 
@@ -808,72 +1440,30 @@ export function registerSalesIpc() {
 
     const counts = buildCountsFromRows(countRows);
 
-    // =======================
-    // DEBUG: imprime exactamente qué pollos cuenta y cuáles ignora
-    // =======================
+    // ✅ SPLIT de productos vendidos por método
+    const productsByPayment = buildProductsByPaymentFromRows(rowsForPaymentSplit);
+
+    // ✅ SPLIT de pollos (porciones) por método
+    const polloByPayment = buildPolloByPaymentFromRows(rowsForPaymentSplit);
+
+    const paquetesDetailed = sortMainAgg(Array.from(paquetesAggMap.values()));
+    const especialidadesDetailed = sortMainAgg(Array.from(especialidadesAggMap.values()));
+
     if (CUT_DEBUG) {
-      const polloCounted = new Map<string, number>(); // key: name|cat -> qty
-      const polloIgnored = new Map<string, number>(); // name|cat -> qty
+      dbg("\n[CUT][PRODUCTS SPLIT] productos vendidos por método:", productsByPayment);
+      dbg("\n[CUT][POLLO SPLIT] pollos por método:", polloByPayment);
 
-      for (const r of countRows) {
-        const name = r.item_name ?? "";
-        const cat = r.item_category ?? "Sin categoría";
-        const qty = safeNum(r.item_qty);
+      dbg("\n[CUT][PAQUETES DETALLE] ===");
+      for (const p of paquetesDetailed)
+        dbg("  ", p.name, "qty=", p.qty, "total=", p.total, "cash=", p.cashTotal, "card=", p.cardTotal);
 
-        const kind = getPolloKindFromName(name);
-        if (!kind) continue;
+      dbg("\n[CUT][ESPECIALIDADES DETALLE] ===");
+      for (const p of especialidadesDetailed)
+        dbg("  ", p.name, "qty=", p.qty, "total=", p.total, "cash=", p.cashTotal, "card=", p.cardTotal);
 
-        const catN = normText(cat);
-        const isIncluded = catN.includes("incluido");
-        const isPolloCategory = catN.includes("pollos");
-
-        const key = `${name} | ${cat}`;
-        if (isPolloCategory || isIncluded) {
-          polloCounted.set(key, (polloCounted.get(key) ?? 0) + qty);
-        } else {
-          polloIgnored.set(key, (polloIgnored.get(key) ?? 0) + qty);
-        }
-      }
-
-      dbg("\n[CUT][POLLO] === CONTADOS (Pollos + Incluidos) ===");
-      for (const [k, v] of [...polloCounted.entries()].sort((a, b) => b[1] - a[1])) dbg("  ", k, "=>", v);
-
-      dbg("[CUT][POLLO] === IGNORADOS (evitar doble conteo) ===");
-      for (const [k, v] of [...polloIgnored.entries()].sort((a, b) => b[1] - a[1])) dbg("  ", k, "=>", v);
-
-      dbg("[CUT][POLLO] Totales:", {
-        enteros: counts.pollo_entero,
-        medios: counts.pollo_medio,
-        cuartos: counts.pollo_cuarto,
-        porciones: counts.pollo_porciones_total,
-        equivalente: Number(counts.pollo_equivalente_total.toFixed(2)),
-      });
-
-      dbg("\n[CUT] === RESUMEN POR TICKET (solo cosas tipo pollo) ===");
-      for (const t of byTicket.values()) {
-        let pEnt = 0,
-          pMed = 0,
-          pCua = 0;
-
-        for (const it of t.items) {
-          const kind = getPolloKindFromName(it.name);
-          if (!kind) continue;
-
-          const catN = normText(it.category);
-          const isIncluded = catN.includes("incluido");
-          const isPolloCategory = catN.includes("pollos");
-
-          if (!(isPolloCategory || isIncluded)) continue;
-
-          const q = safeNum(it.qty);
-          if (kind === "entero") pEnt += q;
-          if (kind === "medio") pMed += q;
-          if (kind === "cuarto") pCua += q;
-        }
-
-        if (pEnt || pMed || pCua) {
-          dbg(`  Ticket ${t.saleId} ${t.createdAt} total=${t.total} => enteros=${pEnt} medios=${pMed} cuartos=${pCua}`);
-        }
+      dbg("\n[CUT][EXTRAS] === DETALLE POR PRODUCTO (cash/card) ===");
+      for (const e of sortExtrasAgg(Array.from(extrasAggMap.values()))) {
+        dbg("  ", e.name, "qty=", e.qty, "total=", e.total, "cash=", e.cashTotal, "card=", e.cardTotal);
       }
       dbg("========================================\n");
     }
@@ -888,12 +1478,23 @@ export function registerSalesIpc() {
           card: safeNum(totalsRow.card_total),
           tickets: safeNum(totalsRow.tickets),
 
+          // ✅ productos vendidos por método (cantidades)
+          productsByPayment,
+
+          // ✅ NUEVO: detalle por producto (paquetes/especialidades)
+          paquetesDetailed,
+          especialidadesDetailed,
+
+          // ✅ pollos/porciones por método (cantidades + equivalente)
+          polloByPayment,
+
           categories: Array.from(categories.entries()).map(([category, v]) => ({
             category,
             qty: safeNum(v.qty),
             total: safeNum(v.total),
           })),
 
+          // mantiene tus totales “globales” como antes
           polloTotals: {
             enteros: counts.pollo_entero,
             medios: counts.pollo_medio,
@@ -901,6 +1502,8 @@ export function registerSalesIpc() {
             porcionesTotal: counts.pollo_porciones_total,
             equivalenteTotal: Number(counts.pollo_equivalente_total.toFixed(2)),
           },
+
+          extrasDetailed: sortExtrasAgg(Array.from(extrasAggMap.values())),
         },
 
         products: Array.from(productsMap.values()).sort((a, b) => b.subtotal - a.subtotal),
@@ -924,7 +1527,6 @@ export function registerSalesIpc() {
     const start = new Date(`${fromStr}T00:00:00.000${tzOffset}`);
     const end = new Date(`${toStr}T23:59:59.999${tzOffset}`);
 
-    // Totales
     const totalsRow = db
       .prepare(
         `SELECT 
@@ -942,7 +1544,6 @@ export function registerSalesIpc() {
       card_total: number;
     };
 
-    // Rows para conteos
     const itemsRows = db
       .prepare(
         `SELECT si.name as item_name, si.qty as item_qty, si.category as item_category
@@ -956,8 +1557,74 @@ export function registerSalesIpc() {
       item_category?: string;
     }>;
 
+    // ✅ Rows con payment_method para construir splits (productos + pollos + extras + detalle)
+    const rowsWithPay = db
+      .prepare(
+        `SELECT
+          s.payment_method as payment_method,
+          si.name as item_name,
+          si.qty as item_qty,
+          si.price as item_price,
+          si.subtotal as item_subtotal,
+          si.category as item_category
+        FROM sales s
+        JOIN sale_items si ON si.sale_id = s.id
+        WHERE s.created_at BETWEEN ? AND ?`
+      )
+      .all(start.toISOString(), end.toISOString()) as Array<{
+      payment_method: string;
+      item_name: string;
+      item_qty: number;
+      item_price: number;
+      item_subtotal: number;
+      item_category?: string;
+    }>;
+
     const counts = buildCountsFromRows(itemsRows);
     const rangeLabel = fromStr === toStr ? fromStr : `${fromStr} — ${toStr}`;
+
+    // ✅ Extras detailed (cash/card)
+    const extrasAggMap = new Map<string, ExtraAgg>();
+
+    // ✅ NUEVO: detalle de paquetes/especialidades en PDF
+    const paquetesAggMap = new Map<string, MainItemAgg>();
+    const especialidadesAggMap = new Map<string, MainItemAgg>();
+
+    for (const r of rowsWithPay) {
+      const category = r.item_category || "Sin categoría";
+      const catN = normText(category);
+      const price = safeNum(r.item_price);
+
+      const isIncludedFree = catN.includes("incluido") && price === 0;
+      if (isIncludedFree) continue;
+
+      const pm: Payment = r.payment_method === "card" ? "card" : "cash";
+      const baseName = (r.item_name.split(" - ")[0]?.trim() || r.item_name).trim();
+
+      // Extras/Desechables
+      if (isExtraOrDesechableCategory(category)) {
+        pushExtraAgg(extrasAggMap, r.item_name, safeNum(r.item_qty), safeNum(r.item_subtotal), pm);
+      }
+
+      // ✅ Detalle paquetes/especialidades
+      if (catN.includes("paquetes")) {
+        pushMainAgg(paquetesAggMap, baseName, safeNum(r.item_qty), safeNum(r.item_subtotal), pm);
+      } else if (catN.includes("especialidades")) {
+        pushMainAgg(especialidadesAggMap, baseName, safeNum(r.item_qty), safeNum(r.item_subtotal), pm);
+      }
+    }
+
+    const extrasDetailed = sortExtrasAgg(Array.from(extrasAggMap.values()));
+
+    // ✅ Productos vendidos split (cash/card)
+    const productsByPayment = buildProductsByPaymentFromRows(rowsWithPay);
+
+    // ✅ Pollos/porciones split (cash/card)
+    const polloByPayment = buildPolloByPaymentFromRows(rowsWithPay);
+
+    // ✅ NUEVO: detalle listas para PDF
+    const paquetesDetailed = sortMainAgg(Array.from(paquetesAggMap.values()));
+    const especialidadesDetailed = sortMainAgg(Array.from(especialidadesAggMap.values()));
 
     const html = buildCutPdfHtml({
       rangeLabel,
@@ -970,6 +1637,12 @@ export function registerSalesIpc() {
         card: safeNum(totalsRow.card_total),
       },
       counts,
+      productsByPayment,
+      polloByPayment,
+      extrasDetailed,
+
+      paquetesDetailed,
+      especialidadesDetailed,
     });
 
     const pdfWin = new BrowserWindow({
