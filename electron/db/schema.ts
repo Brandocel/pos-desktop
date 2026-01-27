@@ -127,7 +127,17 @@ export const packageIncludes = [
   },
   {
     packageName: "Pirata",
-    extras: [{ name: "1 pollo", qty: 1 }, { name: "Purée de papa", qty: 1 }, { name: "Spaghetti", qty: 1 }, { name: "Arroz", qty: 1 }, { name: "Frijol", qty: 1 }, { name: "Tortillas", qty: 1 }, { name: "Salsa", qty: 1 }, { name: "Postre", qty: 1 }],
+    // Incluye ambas opciones para que el customOption elija UNA (espagueti o puré)
+    extras: [
+      { name: "1 pollo", qty: 1 },
+      { name: "Arroz", qty: 1 },
+      { name: "Frijol", qty: 1 },
+      { name: "Tortillas", qty: 1 },
+      { name: "Salsa", qty: 1 },
+      { name: "Postre", qty: 1 },
+      { name: "Spaghetti", qty: 1 },
+      { name: "Purée de papa", qty: 1 },
+    ],
   },
   {
     packageName: "Taquitos",

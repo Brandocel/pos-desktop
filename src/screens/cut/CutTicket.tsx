@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 
 type Row = { name: string; category: string; qty: number; subtotal: number };
+type ExtraInc = { name: string; qty: number };
 
 type Props = {
   from: string;
@@ -46,6 +47,9 @@ type Props = {
 
   // ✅ NUEVO: pago (desde CutScreen ya viene calculado de tickets)
   payTotals: CutPayTotals;
+
+  // ✅ Extras incluidos en paquete (gratis)
+  extrasIncluded?: ExtraInc[];
 
   // ✅ OPCIONAL: si algún día quieres que el ticket sea 100% igual a backend
   // pasando tickets completos. Si NO lo pasas, no pasa nada.
@@ -144,6 +148,7 @@ export function CutTicket({
   ticketsCount,
   polloTotals,
   products,
+  extrasIncluded,
   payTotals,
   tickets,
   cutData,
@@ -193,6 +198,10 @@ export function CutTicket({
   // (Este bloque solo deja claro que ya no dependemos de “adivinar”)
   const polloFinal = polloTotals ? pollo : pollo;
 
+  const extrasInclRows = React.useMemo(() => {
+    return (extrasIncluded ?? []).filter((e) => e.name && safeNum(e.qty) > 0);
+  }, [extrasIncluded]);
+
   return (
     <div id="ticket-print" className="text-[11px] leading-4 text-black">
       {/* Header */}
@@ -212,6 +221,12 @@ export function CutTicket({
 
         <div className="border-t border-dashed border-black my-2" />
       </div>
+
+        <TicketSection
+          title="Incluidos en paquete"
+          icon={<Package className="w-4 h-4" />}
+          rows={extrasInclRows}
+        />
 
       {/* Totales principales */}
       <div className="no-break px-1 py-2 mb-2">

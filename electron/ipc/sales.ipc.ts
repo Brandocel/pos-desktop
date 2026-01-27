@@ -60,6 +60,8 @@ type CreateSaleInput = {
 };
 
 type PackageExtra = { name: string; qty: number };
+// ✅ Extras incluidos en paquete (gratis) que queremos listar aparte
+type ExtraIncluded = { name: string; qty: number; category: string };
 
 // =======================
 // Debug toggle
@@ -389,15 +391,34 @@ function getPackageExtras(_db: any, packageName: string, baseName?: string, cust
 
   let extras = packageIncludesIndex.get(key) ?? [];
 
-  // opción personalizada: reemplazar el extra correspondiente
+  // opción personalizada: reemplazar EL PRIMERO de los alternativos con la opción elegida
   if (customOption && baseName) {
     const customConfig = productCustomOptions[baseName];
     if (customConfig) {
       const allOptionExtras = customConfig.options.map((o) => o.extraName);
-      extras = extras.map((e) => {
-        if (allOptionExtras.includes(e.name)) return { ...e, name: customOption };
-        return e;
-      });
+      let replaced = false;
+
+      extras = extras
+        .filter((e) => {
+          // Si es uno de los alternativos y AÚN NO lo reemplazamos:
+          if (!replaced && allOptionExtras.includes(e.name)) {
+            replaced = true; // Marcar como reemplazado
+            return true; // Mantenerlo para renombrarlo abajo
+          }
+          // Si es uno de los alternativos PERO YA reemplazamos otro: descartarlo
+          if (allOptionExtras.includes(e.name)) {
+            return false; // Descartarlo (no queremos ambos)
+          }
+          // El resto (no alternativos) se mantiene
+          return true;
+        })
+        .map((e) => {
+          // Renombrar solo el primero de los alternativos que pasó el filtro
+          if (allOptionExtras.includes(e.name) && e.name !== customOption) {
+            return { ...e, name: customOption };
+          }
+          return e;
+        });
     }
   }
 
@@ -638,6 +659,7 @@ function buildCutPdfHtml(args: {
   counts: CountSummary;
   productsByPayment: ProductsByPayment;
   polloByPayment: PolloByPayment;
+  extrasIncludedDetailed: ExtraAgg[]; // Incluidos en paquete (gratis, sin pollos)
   extrasDetailed: ExtraAgg[];
 
   // ✅ NUEVO: detalle por producto
@@ -652,6 +674,7 @@ function buildCutPdfHtml(args: {
     counts,
     productsByPayment,
     polloByPayment,
+    extrasIncludedDetailed,
     extrasDetailed,
     paquetesDetailed,
     especialidadesDetailed,
@@ -670,6 +693,12 @@ function buildCutPdfHtml(args: {
     ["Otros", counts.otros],
   ];
 
+  // Incluidos en paquete (gratis)
+  const extrasIncludedGrand = extrasIncludedDetailed.reduce((a, e) => a + safeNum(e.total), 0);
+  const extrasIncludedCash = extrasIncludedDetailed.reduce((a, e) => a + safeNum(e.cashTotal), 0);
+  const extrasIncludedCard = extrasIncludedDetailed.reduce((a, e) => a + safeNum(e.cardTotal), 0);
+
+  // Extras pagados
   const extrasOnly = extrasDetailed.filter((e) => !isDesechableName(e.name) && safeNum(e.total) > 0);
   const desechablesOnly = extrasDetailed.filter((e) => isDesechableName(e.name) && safeNum(e.total) > 0);
 
@@ -1015,11 +1044,71 @@ function buildCutPdfHtml(args: {
   </div>
 
   <div class="section">
-    <div class="section-title">${ICONS.plus}Extras y desechables (detalle por producto)</div>
+    <div class="section-title">${ICONS.plus}Extras incluidos en paquete (gratis, sin pollo)</div>
 
     <div class="grid2">
       <div class="card">
-        <div class="label"><span class="pill">TOTAL (Extras + Desechables)</span></div>
+        <div class="label"><span class="pill">TOTAL incluidos</span></div>
+        <div class="value mono">${escapeHtml(moneyMXN(extrasIncludedGrand))}</div>
+        <div class="sub mono"><b>Efectivo:</b> ${escapeHtml(moneyMXN(extrasIncludedCash))}</div>
+        <div class="sub mono"><b>Tarjeta:</b> ${escapeHtml(moneyMXN(extrasIncludedCard))}</div>
+      </div>
+
+      <div class="card">
+        <div class="label"><span class="pill">NOTA</span></div>
+        <div class="sub muted">Solo acompañamientos incluidos en paquetes. Pollos excluidos.</div>
+      </div>
+    </div>
+
+    ${
+      extrasIncludedDetailed.length
+        ? `
+    <div class="section" style="margin-top:12px;">
+      <div class="section-title">${ICONS.plus}Incluidos (detalle)</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th class="right">Cant.</th>
+            <th class="right">Efectivo</th>
+            <th class="right">Tarjeta</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${extrasIncludedDetailed
+            .map(
+              (e) => `
+            <tr>
+              <td>${escapeHtml(e.name)}</td>
+              <td class="mono right">${escapeHtml(String(safeNum(e.qty)))}</td>
+              <td class="mono right">${escapeHtml(String(safeNum(e.cashQty)))} uds</td>
+              <td class="mono right">${escapeHtml(String(safeNum(e.cardQty)))} uds</td>
+            </tr>
+          `
+            )
+            .join("")}
+          <tr class="total">
+            <td><b>Subtotal incluidos</b></td>
+            <td class="mono right"><b>${escapeHtml(String(extrasIncludedDetailed.reduce((a, x) => a + safeNum(x.qty), 0)))}</b></td>
+            <td class="mono right"><b>${escapeHtml(String(extrasIncludedDetailed.reduce((a, x) => a + safeNum(x.cashQty), 0)))}</b></td>
+            <td class="mono right"><b>${escapeHtml(String(extrasIncludedDetailed.reduce((a, x) => a + safeNum(x.cardQty), 0)))}</b></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`
+        : `
+    <div class="section" style="margin-top:12px;">
+      <div class="sub muted">Sin incluidos en paquete en este rango.</div>
+    </div>`
+    }
+  </div>
+
+  <div class="section">
+    <div class="section-title">${ICONS.plus}Extras y desechables pagados (detalle por producto)</div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="label"><span class="pill">TOTAL pagados</span></div>
         <div class="value mono">${escapeHtml(moneyMXN(extrasGrand))}</div>
         <div class="sub mono"><b>Efectivo:</b> ${escapeHtml(moneyMXN(extrasCash))}</div>
         <div class="sub mono"><b>Tarjeta:</b> ${escapeHtml(moneyMXN(extrasCard))}</div>
@@ -1027,8 +1116,7 @@ function buildCutPdfHtml(args: {
 
       <div class="card">
         <div class="label"><span class="pill">NOTA</span></div>
-        <div class="sub muted">Aquí se desglosa por producto vendido en categorías <b>Extras</b> y <b>Desechables</b>.</div>
-        <div class="sub muted">Los “Incluido en paquete” (gratis) nunca entran en este detalle.</div>
+        <div class="sub muted">Solo extras/desechables pagados. Los incluidos gratis se listan arriba.</div>
       </div>
     </div>
 
@@ -1036,7 +1124,7 @@ function buildCutPdfHtml(args: {
       extrasOnly.length
         ? `
     <div class="section" style="margin-top:12px;">
-      <div class="section-title">${ICONS.plus}Extras (detalle)</div>
+      <div class="section-title">${ICONS.plus}Extras pagados</div>
       <table>
         <thead>
           <tr>
@@ -1062,7 +1150,7 @@ function buildCutPdfHtml(args: {
             )
             .join("")}
           <tr class="total">
-            <td><b>Subtotal extras</b></td>
+            <td><b>Subtotal extras pagados</b></td>
             <td class="mono right"><b>${escapeHtml(String(extrasOnly.reduce((a, x) => a + safeNum(x.qty), 0)))}</b></td>
             <td class="mono right"><b>${escapeHtml(moneyMXN(extrasOnly.reduce((a, x) => a + safeNum(x.total), 0)))}</b></td>
             <td class="mono right"><b>${escapeHtml(moneyMXN(extrasOnly.reduce((a, x) => a + safeNum(x.cashTotal), 0)))}</b></td>
@@ -1073,7 +1161,7 @@ function buildCutPdfHtml(args: {
     </div>`
         : `
     <div class="section" style="margin-top:12px;">
-      <div class="sub muted">Sin extras vendidos en este rango.</div>
+      <div class="sub muted">Sin extras pagados en este rango.</div>
     </div>`
     }
 
@@ -1081,7 +1169,7 @@ function buildCutPdfHtml(args: {
       desechablesOnly.length
         ? `
     <div class="section" style="margin-top:12px;">
-      <div class="section-title">${ICONS.plus}Desechables (detalle)</div>
+      <div class="section-title">${ICONS.plus}Desechables pagados</div>
       <table>
         <thead>
           <tr>
@@ -1107,7 +1195,7 @@ function buildCutPdfHtml(args: {
             )
             .join("")}
           <tr class="total">
-            <td><b>Subtotal desechables</b></td>
+            <td><b>Subtotal desechables pagados</b></td>
             <td class="mono right"><b>${escapeHtml(String(desechablesOnly.reduce((a, x) => a + safeNum(x.qty), 0)))}</b></td>
             <td class="mono right"><b>${escapeHtml(moneyMXN(desechablesOnly.reduce((a, x) => a + safeNum(x.total), 0)))}</b></td>
             <td class="mono right"><b>${escapeHtml(moneyMXN(desechablesOnly.reduce((a, x) => a + safeNum(x.cashTotal), 0)))}</b></td>
@@ -1118,7 +1206,7 @@ function buildCutPdfHtml(args: {
     </div>`
         : `
     <div class="section" style="margin-top:12px;">
-      <div class="sub muted">Sin desechables vendidos en este rango.</div>
+      <div class="sub muted">Sin desechables pagados en este rango.</div>
     </div>`
     }
   </div>
@@ -1337,6 +1425,7 @@ export function registerSalesIpc() {
     const categories = new Map<string, { qty: number; total: number }>();
 
     const extrasAggMap = new Map<string, ExtraAgg>();
+    const extrasIncludedAggMap = new Map<string, ExtraAgg>(); // Incluidos en paquete (gratis) sin pollos
 
     // ✅ NUEVO: maps para detalle de paquetes/especialidades
     const paquetesAggMap = new Map<string, MainItemAgg>();
@@ -1391,33 +1480,41 @@ export function registerSalesIpc() {
 
       const isIncludedFree = catN.includes("incluido") && price === 0;
 
-      if (!isIncludedFree) {
-        const key = `${row.item_name}__${category}`;
-        if (!productsMap.has(key)) productsMap.set(key, { name: row.item_name, category, qty: 0, subtotal: 0 });
-        const prod = productsMap.get(key)!;
-        prod.qty += safeNum(row.item_qty);
-        prod.subtotal += safeNum(row.item_subtotal);
-
-        if (!categories.has(category)) categories.set(category, { qty: 0, total: 0 });
-        const cat = categories.get(category)!;
-        cat.qty += safeNum(row.item_qty);
-        cat.total += safeNum(row.item_subtotal);
-
-        const pm: Payment = row.payment_method === "card" ? "card" : "cash";
-
-        // ✅ Extras/Desechables
-        if (isExtraOrDesechableCategory(category)) {
-          pushExtraAgg(extrasAggMap, row.item_name, safeNum(row.item_qty), safeNum(row.item_subtotal), pm);
+      // ✅ Extras incluidos en paquete (gratis) — queremos contarlos aparte sin pollos
+      if (isIncludedFree) {
+        const polloKind = getPolloKindFromName(row.item_name);
+        if (!polloKind) {
+          const pm: Payment = row.payment_method === "card" ? "card" : "cash";
+          pushExtraAgg(extrasIncludedAggMap, row.item_name, safeNum(row.item_qty), 0, pm);
         }
+        continue;
+      }
 
-        // ✅ NUEVO: detalle de Paquetes / Especialidades (por producto)
-        const baseName = (row.item_name.split(" - ")[0]?.trim() || row.item_name).trim();
+      const key = `${row.item_name}__${category}`;
+      if (!productsMap.has(key)) productsMap.set(key, { name: row.item_name, category, qty: 0, subtotal: 0 });
+      const prod = productsMap.get(key)!;
+      prod.qty += safeNum(row.item_qty);
+      prod.subtotal += safeNum(row.item_subtotal);
 
-        if (catN.includes("paquetes")) {
-          pushMainAgg(paquetesAggMap, baseName, safeNum(row.item_qty), safeNum(row.item_subtotal), pm);
-        } else if (catN.includes("especialidades")) {
-          pushMainAgg(especialidadesAggMap, baseName, safeNum(row.item_qty), safeNum(row.item_subtotal), pm);
-        }
+      if (!categories.has(category)) categories.set(category, { qty: 0, total: 0 });
+      const cat = categories.get(category)!;
+      cat.qty += safeNum(row.item_qty);
+      cat.total += safeNum(row.item_subtotal);
+
+      const pm: Payment = row.payment_method === "card" ? "card" : "cash";
+
+      // ✅ Extras/Desechables (pagados)
+      if (isExtraOrDesechableCategory(category)) {
+        pushExtraAgg(extrasAggMap, row.item_name, safeNum(row.item_qty), safeNum(row.item_subtotal), pm);
+      }
+
+      // ✅ NUEVO: detalle de Paquetes / Especialidades (por producto)
+      const baseName = (row.item_name.split(" - ")[0]?.trim() || row.item_name).trim();
+
+      if (catN.includes("paquetes")) {
+        pushMainAgg(paquetesAggMap, baseName, safeNum(row.item_qty), safeNum(row.item_subtotal), pm);
+      } else if (catN.includes("especialidades")) {
+        pushMainAgg(especialidadesAggMap, baseName, safeNum(row.item_qty), safeNum(row.item_subtotal), pm);
       }
     }
 
@@ -1461,7 +1558,12 @@ export function registerSalesIpc() {
       for (const p of especialidadesDetailed)
         dbg("  ", p.name, "qty=", p.qty, "total=", p.total, "cash=", p.cashTotal, "card=", p.cardTotal);
 
-      dbg("\n[CUT][EXTRAS] === DETALLE POR PRODUCTO (cash/card) ===");
+      dbg("\n[CUT][EXTRAS INCLUIDOS EN PAQUETE] (gratis, sin pollo) ===");
+      for (const e of sortExtrasAgg(Array.from(extrasIncludedAggMap.values()))) {
+        dbg("  ", e.name, "qty=", e.qty, "cash=", e.cashQty, "card=", e.cardQty);
+      }
+
+      dbg("\n[CUT][EXTRAS PAGADOS] === DETALLE POR PRODUCTO (cash/card) ===");
       for (const e of sortExtrasAgg(Array.from(extrasAggMap.values()))) {
         dbg("  ", e.name, "qty=", e.qty, "total=", e.total, "cash=", e.cashTotal, "card=", e.cardTotal);
       }
@@ -1503,6 +1605,7 @@ export function registerSalesIpc() {
             equivalenteTotal: Number(counts.pollo_equivalente_total.toFixed(2)),
           },
 
+          extrasIncludedDetailed: sortExtrasAgg(Array.from(extrasIncludedAggMap.values())),
           extrasDetailed: sortExtrasAgg(Array.from(extrasAggMap.values())),
         },
 
@@ -1583,8 +1686,9 @@ export function registerSalesIpc() {
     const counts = buildCountsFromRows(itemsRows);
     const rangeLabel = fromStr === toStr ? fromStr : `${fromStr} — ${toStr}`;
 
-    // ✅ Extras detailed (cash/card)
-    const extrasAggMap = new Map<string, ExtraAgg>();
+    // ✅ Extras
+    const extrasAggMap = new Map<string, ExtraAgg>();           // pagados
+    const extrasIncludedAggMap = new Map<string, ExtraAgg>();    // incluidos gratis (sin pollos)
 
     // ✅ NUEVO: detalle de paquetes/especialidades en PDF
     const paquetesAggMap = new Map<string, MainItemAgg>();
@@ -1596,7 +1700,14 @@ export function registerSalesIpc() {
       const price = safeNum(r.item_price);
 
       const isIncludedFree = catN.includes("incluido") && price === 0;
-      if (isIncludedFree) continue;
+      if (isIncludedFree) {
+        const polloKind = getPolloKindFromName(r.item_name);
+        if (!polloKind) {
+          const pm: Payment = r.payment_method === "card" ? "card" : "cash";
+          pushExtraAgg(extrasIncludedAggMap, r.item_name, safeNum(r.item_qty), 0, pm);
+        }
+        continue;
+      }
 
       const pm: Payment = r.payment_method === "card" ? "card" : "cash";
       const baseName = (r.item_name.split(" - ")[0]?.trim() || r.item_name).trim();
@@ -1614,6 +1725,7 @@ export function registerSalesIpc() {
       }
     }
 
+    const extrasIncludedDetailed = sortExtrasAgg(Array.from(extrasIncludedAggMap.values()));
     const extrasDetailed = sortExtrasAgg(Array.from(extrasAggMap.values()));
 
     // ✅ Productos vendidos split (cash/card)
@@ -1639,6 +1751,7 @@ export function registerSalesIpc() {
       counts,
       productsByPayment,
       polloByPayment,
+      extrasIncludedDetailed,
       extrasDetailed,
 
       paquetesDetailed,

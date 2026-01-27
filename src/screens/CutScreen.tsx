@@ -216,6 +216,14 @@ export function CutScreen({ onBack }: Props) {
     lines.push(`CUARTOS: ${safeNum(polloResolved.cuartos)}`);
     lines.push("----------------------------------------");
 
+    if (extrasIncluidos.length > 0) {
+      lines.push("INCLUIDOS EN PAQUETE (gratis, sin pollo)");
+      for (const e of extrasIncluidos) {
+        lines.push(`- ${e.name}: ${safeNum(e.qty)}`);
+      }
+      lines.push("----------------------------------------");
+    }
+
     const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
     const filename = `corte_ticket_${cutFrom}_a_${to}.txt`;
     downloadBlob(blob, filename);
@@ -240,6 +248,18 @@ export function CutScreen({ onBack }: Props) {
   const products: CutProductRow[] = useMemo(() => {
     const list = (cutData?.products ?? []) as CutProductRow[];
     return [...list].sort((a, b) => safeNum(b.qty) - safeNum(a.qty));
+  }, [cutData]);
+
+  const extrasIncluidos = useMemo(() => {
+    const list =
+      (cutData?.totals && "extrasIncludedDetailed" in cutData.totals
+        ? ((cutData.totals as unknown as { extrasIncludedDetailed?: Array<{ name?: string; qty?: number }> })
+            .extrasIncludedDetailed ?? [])
+        : []) ?? [];
+    return list
+      .map((e) => ({ name: e?.name ?? "", qty: safeNum(e?.qty) }))
+      .filter((e: { name: string; qty: number }) => e.name && e.qty > 0)
+      .sort((a, b) => safeNum(b.qty) - safeNum(a.qty));
   }, [cutData]);
 
   const grandTotal = useMemo(() => safeNum(cutData?.totals?.grand), [cutData]);
@@ -402,7 +422,12 @@ export function CutScreen({ onBack }: Props) {
           )}
         </div>
 
-        <CutDetail uiInputClass={ui.input} products={products} grandTotal={grandTotal} />
+        <CutDetail
+          uiInputClass={ui.input}
+          products={products}
+          extrasIncluded={extrasIncluidos}
+          grandTotal={grandTotal}
+        />
       </main>
 
       {/* PDF Drawer */}
@@ -442,6 +467,7 @@ export function CutScreen({ onBack }: Props) {
             ticketsCount={ticketsCount}
             polloTotals={polloTotals}
             products={products}
+            extrasIncluded={extrasIncluidos}
             payTotals={payTotals}
             tickets={cutData?.tickets}
             cutData={cutData}

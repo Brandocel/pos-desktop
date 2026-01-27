@@ -21,6 +21,7 @@ import {
 type Props = {
   uiInputClass: string;
   products: CutProductRow[];
+  extrasIncluded: { name: string; qty: number }[];
   grandTotal: number;
 };
 
@@ -47,7 +48,7 @@ function basePolloName(name: string) {
 }
 
 
-export function CutDetail({ uiInputClass, products, grandTotal }: Props) {
+export function CutDetail({ uiInputClass, products, extrasIncluded, grandTotal }: Props) {
   // UX
   const [detailQuery, setDetailQuery] = useState("");
   const [onlyProduction, setOnlyProduction] = useState(true);
@@ -271,6 +272,26 @@ export function CutDetail({ uiInputClass, products, grandTotal }: Props) {
           </button>
         </div>
       </div>
+
+      {/* Extras incluidos en paquete (gratis) */}
+      {extrasIncluded.length > 0 && (
+        <div className="px-4 py-3 border-b border-zinc-200 bg-zinc-50">
+          <div className="text-xs font-extrabold text-zinc-800 inline-flex items-center gap-2">
+            <Boxes className="w-4 h-4" /> Extras incluidos en paquete (gratis, sin pollo)
+          </div>
+          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+            {extrasIncluded.map((e) => (
+              <div
+                key={e.name}
+                className="flex items-center justify-between px-3 py-2 rounded-xl border border-zinc-200 bg-white"
+              >
+                <span className="text-xs font-semibold text-zinc-800 truncate">{e.name}</span>
+                <span className="text-sm font-extrabold text-zinc-900">{safeNum(e.qty)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* body */}
       <div className="p-4">
