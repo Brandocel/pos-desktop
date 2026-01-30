@@ -2,14 +2,13 @@
 import React from "react";
 import { money } from "../../pos/utils/money";
 
-// ✅ helpers (solo lo que sí existe y necesitamos)
+// ✅ helpers
 import {
   safeNum,
-  normText,
   resolvePolloTotals,
   CutPayTotals,
   CutPolloTotals,
-} from "../../screens/cut/cutHelpers"; // ajusta ruta si cambia
+} from "../../screens/cut/cutHelpers";
 
 // ✅ lucide icons
 import {
@@ -38,22 +37,18 @@ type Props = {
   grandTotal: number;
   ticketsCount: number;
 
-  // ✅ importante: ahora sí lo usamos como verdad si viene ya calculado arriba,
-  // pero igual lo "aseguramos" con resolvePolloTotals.
   polloTotals?: CutPolloTotals;
 
   // productos agregados (cutData.products)
   products: Row[];
 
-  // ✅ NUEVO: pago (desde CutScreen ya viene calculado de tickets)
+  // pago (desde CutScreen)
   payTotals: CutPayTotals;
 
   // ✅ Extras incluidos en paquete (gratis)
   extrasIncluded?: ExtraInc[];
 
-  // ✅ OPCIONAL: si algún día quieres que el ticket sea 100% igual a backend
-  // pasando tickets completos. Si NO lo pasas, no pasa nada.
-  // (Esto NO rompe nada)
+  // opcional
   tickets?: any[];
   cutData?: any;
 };
@@ -126,8 +121,8 @@ function TicketSection({
       </div>
 
       <div className="mt-2 space-y-1">
-        {rows.map((r) => (
-          <div key={r.name} className="flex justify-between gap-2">
+        {rows.map((r, idx) => (
+          <div key={`${r.name}-${idx}`} className="flex justify-between gap-2">
             <span className="font-bold truncate">{r.name}</span>
             <span className="font-extrabold tabular-nums">{safeNum(r.qty)}</span>
           </div>
@@ -156,28 +151,18 @@ export function CutTicket({
   const dateLabel = useRange ? `${from} a ${to}` : `${from}`;
 
   // ✅✅ POLLOS: fuente segura (misma lógica que pantalla)
-  // 1) backend totals.polloTotals
-  // 2) tickets.items
   const pollo: CutPolloTotals = React.useMemo(() => {
-    // Si CutScreen no te pasa cutData/tickets aquí, igual funciona:
-    // resolvePolloTotals hará fallback.
     return resolvePolloTotals({
       cutData: cutData ?? null,
       tickets: tickets ?? [],
     });
   }, [cutData, tickets]);
 
-  // ✅ Agrupar por categoría para secciones extra
+  // ✅ Agrupar por categoría para secciones
   const grouped = React.useMemo(() => groupByCategory(products ?? []), [products]);
 
-  const pollos = React.useMemo(
-    () => sortTicketRows(grouped.get("Pollos") || []),
-    [grouped]
-  );
-  const paquetes = React.useMemo(
-    () => sortTicketRows(grouped.get("Paquetes") || []),
-    [grouped]
-  );
+  const pollos = React.useMemo(() => sortTicketRows(grouped.get("Pollos") || []), [grouped]);
+  const paquetes = React.useMemo(() => sortTicketRows(grouped.get("Paquetes") || []), [grouped]);
   const especialidades = React.useMemo(
     () => sortTicketRows(grouped.get("Especialidades") || []),
     [grouped]
@@ -193,14 +178,33 @@ export function CutTicket({
     [grouped]
   );
 
-  // ✅ Si por alguna razón polloTotals venía, pero difiere del seguro,
-  // usamos el seguro y listo.
-  // (Este bloque solo deja claro que ya no dependemos de “adivinar”)
+  // ✅ usamos el “seguro”
   const polloFinal = polloTotals ? pollo : pollo;
 
-  const extrasInclRows = React.useMemo(() => {
-    return (extrasIncluded ?? []).filter((e) => e.name && safeNum(e.qty) > 0);
+  // ✅ Incluidos en paquete: convertir a TicketRow (tu TicketSection lo exige)
+  const extrasInclRows: TicketRow[] = React.useMemo(() => {
+    return (extrasIncluded ?? [])
+      .map((e) => ({ name: String(e.name ?? "").trim(), qty: safeNum(e.qty) }))
+      .filter((e) => e.name && e.qty > 0);
   }, [extrasIncluded]);
+
+  // ✅ Totales generales (conteo general)
+  const extrasPaidTotal = React.useMemo(() => sumQty(extras), [extras]);
+  const desechablesTotal = React.useMemo(() => sumQty(desechables), [desechables]);
+  const incluidosTotal = React.useMemo(
+    () => extrasInclRows.reduce((acc, r) => acc + safeNum(r.qty), 0),
+    [extrasInclRows]
+  );
+  const extrasGeneralTotal = extrasPaidTotal + desechablesTotal + incluidosTotal;
+
+  // ✅ Equivalencia de pollo (pollos completos)
+  const polloEquivalente = React.useMemo(() => {
+    const eq =
+      safeNum(polloFinal.enteros) * 1 +
+      safeNum(polloFinal.medios) * 0.5 +
+      safeNum(polloFinal.cuartos) * 0.25;
+    return Number(eq.toFixed(2));
+  }, [polloFinal.enteros, polloFinal.medios, polloFinal.cuartos]);
 
   return (
     <div id="ticket-print" className="text-[11px] leading-4 text-black">
@@ -221,12 +225,6 @@ export function CutTicket({
 
         <div className="border-t border-dashed border-black my-2" />
       </div>
-
-        <TicketSection
-          title="Incluidos en paquete"
-          icon={<Package className="w-4 h-4" />}
-          rows={extrasInclRows}
-        />
 
       {/* Totales principales */}
       <div className="no-break px-1 py-2 mb-2">
@@ -317,10 +315,52 @@ export function CutTicket({
             <span className="font-semibold">Cuartos:</span>
             <span className="font-extrabold">{safeNum(polloFinal.cuartos)}</span>
           </div>
+
+          {/* ✅ equivalencia (lo que te faltaba) */}
+          <div className="flex justify-between">
+            <span className="font-semibold">Equivalente (pollos):</span>
+            <span className="font-extrabold tabular-nums">{polloEquivalente.toFixed(2)}</span>
+          </div>
         </div>
 
         <div className="border-t border-dashed border-black my-2" />
       </div>
+
+      {/* ✅ Conteo general extras (pagados + desechables + incluidos) */}
+      <div className="no-break">
+        <div className="flex items-center gap-2 font-extrabold">
+          <Salad className="w-4 h-4" />
+          <span>EXTRAS (resumen)</span>
+        </div>
+
+        <div className="mt-1 text-[10px] space-y-0.5">
+          <div className="flex justify-between">
+            <span className="font-semibold">Extras (pagados):</span>
+            <span className="font-extrabold">{safeNum(extrasPaidTotal)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="font-semibold">Desechables:</span>
+            <span className="font-extrabold">{safeNum(desechablesTotal)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="font-semibold">Incluidos en paquete:</span>
+            <span className="font-extrabold">{safeNum(incluidosTotal)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="font-semibold">Total general:</span>
+            <span className="font-extrabold">{safeNum(extrasGeneralTotal)}</span>
+          </div>
+        </div>
+
+        <div className="border-t border-dashed border-black my-2" />
+      </div>
+
+      {/* ✅ Incluidos en paquete (lista) — ahora sí en su lugar */}
+      <TicketSection
+        title={`INCLUIDOS EN PAQUETE (${incluidosTotal})`}
+        icon={<Package className="w-4 h-4" />}
+        rows={extrasInclRows}
+      />
 
       {/* Pollos */}
       <TicketSection
@@ -376,9 +416,9 @@ export function CutTicket({
         <div className="border-t border-dashed border-black mb-2" />
         <div className="text-zinc-600">Impreso desde POS Desktop</div>
         <div className="text-[9px] text-zinc-500 mt-1">
-          {new Date().toLocaleString('es-MX', { 
-            dateStyle: 'short', 
-            timeStyle: 'short' 
+          {new Date().toLocaleString("es-MX", {
+            dateStyle: "short",
+            timeStyle: "short",
           })}
         </div>
         <div className="mt-2 font-bold">— Fin del Ticket —</div>
