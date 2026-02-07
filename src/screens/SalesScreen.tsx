@@ -59,6 +59,15 @@ function getCategoryLabel(cat: Category) {
   return c;
 }
 
+// ✅ helper para cash: redondear hacia arriba al billete más cercano disponible
+function pickNearestCashUp(total: number, options: number[]) {
+  const t = Number(total) || 0;
+  if (t <= 0) return 0;
+  const sorted = [...options].sort((a, b) => a - b);
+  const found = sorted.find((v) => v >= t);
+  return found ?? t; // si ninguno alcanza, usa exacto
+}
+
 export function SalesScreen() {
   const ui = useUi();
 
@@ -84,6 +93,32 @@ export function SalesScreen() {
   const [cashReceived, setCashReceived] = useState(0);
   const change = useMemo(() => Math.max(0, cashReceived - total), [cashReceived, total]);
   const quickCash = useQuickCash(total);
+
+  // ✅✅ VALIDACIONES EFECTIVO (lo que pediste)
+  // 1) Si hay total y es efectivo => cashReceived mínimo = total
+  useEffect(() => {
+    if (paymentMethod !== "cash") return;
+
+    if (total <= 0) {
+      if (cashReceived !== 0) setCashReceived(0);
+      return;
+    }
+
+    if (!Number.isFinite(cashReceived) || cashReceived < total) {
+      // aquí puedes elegir:
+      // - setCashReceived(total)  => exacto
+      // - setCashReceived(pickNearestCashUp(total, quickCash)) => billete superior si existe
+      setCashReceived(total);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentMethod, total]);
+
+  // 2) Si cambias a tarjeta, el efectivo recibido no importa => lo dejamos en 0
+  useEffect(() => {
+    if (paymentMethod === "card") {
+      if (cashReceived !== 0) setCashReceived(0);
+    }
+  }, [paymentMethod]);
 
   // UX
   const [lastTappedProductId, setLastTappedProductId] = useState<string | null>(null);
@@ -205,9 +240,8 @@ export function SalesScreen() {
     >();
 
     Object.entries(productCustomOptions).forEach(([key, val]) => {
-      idx.set(normKey(key), val);
+      idx.set(normKey(key), val as any);
     });
-
     return idx;
   }, []);
 
@@ -236,7 +270,7 @@ export function SalesScreen() {
   function getPrettyCustomOptionLabel(baseName?: string, extraName?: string) {
     if (!baseName || !extraName) return "";
     const opts = getCustomOptionsForProduct(baseName);
-    const found = opts?.options?.find((o: { extraName: string; }) => o.extraName === extraName);
+    const found = opts?.options?.find((o: { extraName: string }) => o.extraName === extraName);
     return found?.name || extraName;
   }
 
@@ -250,8 +284,8 @@ export function SalesScreen() {
           window.api.settings?.get({ key: "specialty_upgrade_price" }),
         ]);
 
-        if (productsRes.ok && productsRes.products) {
-          const mapped: Product[] = productsRes.products.map((p: any) => ({
+        if (productsRes.ok && (productsRes as any).products) {
+          const mapped: Product[] = (productsRes as any).products.map((p: any) => ({
             id: String(p.id),
             name: p.name,
             category: normalizeCategoryValue(p.category) as Category,
@@ -477,7 +511,9 @@ export function SalesScreen() {
     const flavorValue = labelSlots.length > 0 ? labelSlots.join(" | ") : undefined;
 
     // ✅ etiqueta bonita de extra
-    const customOptLabel = pendingCustomOption ? ` (${getPrettyCustomOptionLabel(p.name, pendingCustomOption)})` : "";
+    const customOptLabel = pendingCustomOption
+      ? ` (${getPrettyCustomOptionLabel(p.name, pendingCustomOption)})`
+      : "";
 
     const display = `${p.name} - ${flavorLabel}${customOptLabel}${suffixPromo}`;
     const key = `${p.id}__${flavorValue ?? "nosabor"}__${pendingCustomOption || "noopt"}__${isPromo ? "promo" : "normal"}`;
@@ -615,6 +651,16 @@ export function SalesScreen() {
   async function chargeAndSave() {
     if (cart.length === 0) return;
 
+    // ✅ Seguridad: en efectivo no permitir cobrar si cashReceived < total
+    if (paymentMethod === "cash") {
+      const cr = Number(cashReceived) || 0;
+      if (total > 0 && cr < total) {
+        alert("El efectivo recibido no puede ser menor al total.");
+        setCashReceived(total);
+        return;
+      }
+    }
+
     const payload = {
       items: cart.map((i) => ({
         name: i.name,
@@ -634,7 +680,7 @@ export function SalesScreen() {
 
     const res = await window.api.createSale(payload);
     if (!res.ok) {
-      alert(res.message || "Error guardando venta");
+      alert((res as any).message || "Error guardando venta");
       return;
     }
 
@@ -1098,18 +1144,46 @@ export function SalesScreen() {
                         <input
                           type="number"
                           value={cashReceived}
-                          onChange={(e) => setCashReceived(Number(e.target.value))}
-                          placeholder="0"
+                          min={total > 0 ? total : 0}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+
+                            if (!Number.isFinite(v)) {
+                              setCashReceived(0);
+                              return;
+                            }
+
+                            // ✅ nunca permitir menor al total cuando hay productos
+                            if (total > 0 && v < total) {
+                              setCashReceived(total);
+                              return;
+                            }
+
+                            setCashReceived(v);
+                          }}
+                          placeholder={total > 0 ? String(total) : "0"}
                           className={ui.input}
                         />
 
                         <div className="mt-2 grid grid-cols-3 gap-2">
                           {quickCash.map((v) => (
-                            <button key={v} onClick={() => setCashReceived(v)} className={ui.primaryStrong}>
+                            <button
+                              key={v}
+                              onClick={() => {
+                                // ✅ si el botón es menor al total, sube a exacto
+                                setCashReceived(v < total ? total : v);
+                              }}
+                              className={ui.primaryStrong}
+                            >
                               {money(v)}
                             </button>
                           ))}
-                          <button onClick={() => setCashReceived(total)} className={ui.primaryStrong} disabled={total <= 0}>
+
+                          <button
+                            onClick={() => setCashReceived(total)}
+                            className={ui.primaryStrong}
+                            disabled={total <= 0}
+                          >
                             Exacto
                           </button>
                         </div>
