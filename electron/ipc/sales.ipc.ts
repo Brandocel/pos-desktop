@@ -49,6 +49,13 @@ type SaleItemInput = {
   category?: string;
   flavor?: string;
   customOption?: string;
+  components?: Array<{
+    slot: number;
+    portion: string;
+    flavor?: string;
+    isSpecialty?: boolean;
+    specialty?: string;
+  }>;
 };
 
 type CreateSaleInput = {
@@ -77,6 +84,16 @@ function dbg(...args: any[]) {
 function safeNum(v: any) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+function getSettingNumber(db: any, key: string, fallback: number) {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value?: string } | undefined;
+    const num = Number(row?.value);
+    return Number.isFinite(num) ? num : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function normText(v: any) {
@@ -1235,7 +1252,16 @@ export function registerSalesIpc() {
     const saleId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     const paymentMethod = payload.paymentMethod === "card" ? "card" : "cash";
-    const total = payload.items.reduce((acc, it) => acc + safeNum(it.qty) * safeNum(it.price), 0);
+    const upgradePrice = getSettingNumber(db, "specialty_upgrade_price", 20);
+
+    const total = payload.items.reduce((acc, it) => {
+      const qty = safeNum(it.qty);
+      const base = qty * safeNum(it.price);
+      const upgrades = Array.isArray(it.components)
+        ? it.components.filter((c) => !!c?.isSpecialty).length * upgradePrice * qty
+        : 0;
+      return acc + base + upgrades;
+    }, 0);
 
     const insertSale = db.prepare(
       `INSERT INTO sales (id, created_at, total, payment_method, notes) VALUES (?, ?, ?, ?, ?)`
@@ -1244,6 +1270,12 @@ export function registerSalesIpc() {
     const insertItem = db.prepare(
       `INSERT INTO sale_items (id, sale_id, name, qty, price, subtotal, category, flavor)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+
+    const insertComponent = db.prepare(
+      `INSERT INTO sale_item_components (
+        id, sale_item_id, slot_index, portion_name, component_qty, flavor, is_specialty, specialty_name, upgrade_price
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     const selectInsertedItems = db.prepare(
@@ -1273,6 +1305,39 @@ export function registerSalesIpc() {
           it.category ?? "Sin categoría",
           it.flavor ?? null
         );
+
+        const components = Array.isArray(it.components) ? it.components : [];
+        if (components.length) {
+          for (const comp of components) {
+            insertComponent.run(
+              crypto.randomUUID(),
+              itemId,
+              safeNum(comp.slot),
+              String(comp.portion ?? ""),
+              qty,
+              comp.flavor ?? null,
+              comp.isSpecialty ? 1 : 0,
+              comp.specialty ?? null,
+              comp.isSpecialty ? upgradePrice : 0
+            );
+          }
+        }
+
+        const upgradeCountPerItem = components.filter((c) => !!c?.isSpecialty).length;
+        if (upgradeCountPerItem > 0 && qty > 0) {
+          const totalUpgrades = upgradeCountPerItem * qty;
+          const upgradeSubtotal = totalUpgrades * upgradePrice;
+          insertItem.run(
+            crypto.randomUUID(),
+            saleId,
+            "Upgrade Especialidades",
+            totalUpgrades,
+            upgradePrice,
+            upgradeSubtotal,
+            "Upgrades",
+            null
+          );
+        }
 
         // 3) Insert included extras for bundles
         const catN = normText(it.category ?? "Sin categoría");
@@ -1778,6 +1843,36 @@ export function registerSalesIpc() {
       base64: pdfBuffer.toString("base64"),
       filename: `corte_${fromStr}_${toStr}.pdf`,
     };
+  });
+
+  // ✅ settings:get
+  ipcMain.handle("settings:get", (_event, payload: { key: string }) => {
+    const db = getDb();
+    const key = String(payload?.key ?? "").trim();
+    if (!key) return { ok: false, message: "Key requerida" };
+
+    const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value?: string } | undefined;
+    if (!row) return { ok: false, message: "Key no encontrada" };
+    return { ok: true, value: String(row.value ?? "") };
+  });
+
+  // ✅ settings:set
+  ipcMain.handle("settings:set", (_event, payload: { key: string; value: string }) => {
+    const db = getDb();
+    const key = String(payload?.key ?? "").trim();
+    if (!key) return { ok: false, message: "Key requerida" };
+
+    const value = String(payload?.value ?? "");
+    const now = new Date().toISOString();
+
+    const exists = db.prepare("SELECT key FROM settings WHERE key = ?").get(key) as { key?: string } | undefined;
+    if (exists?.key) {
+      db.prepare("UPDATE settings SET value = ?, updated_at = ? WHERE key = ?").run(value, now, key);
+    } else {
+      db.prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)").run(key, value, now);
+    }
+
+    return { ok: true, value };
   });
 
   // ✅ flavors:list

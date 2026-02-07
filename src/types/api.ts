@@ -6,6 +6,14 @@ export interface CreateSaleItemPayload {
   price: number;
   category?: string;
   flavor?: string | null;
+  customOption?: string;
+  components?: Array<{
+    slot: number;
+    portion: string;
+    flavor?: string;
+    isSpecialty?: boolean;
+    specialty?: string;
+  }>;
 }
 
 export interface CreateSalePayload {
@@ -154,6 +162,12 @@ export interface Api {
     create: (payload: { name: string }) => Promise<CreateFlavorResponse>;
     delete: (payload: { id: string }) => Promise<DeleteFlavorResponse>;
     restore: (payload: { id: string }) => Promise<DeleteFlavorResponse>;
+  };
+
+  // ✅ Settings
+  settings: {
+    get: (payload: { key: string }) => Promise<{ ok: boolean; value?: string; message?: string }>;
+    set: (payload: { key: string; value: string }) => Promise<{ ok: boolean; value?: string; message?: string }>;
   };
 
   // ✅ Corte / Resumen

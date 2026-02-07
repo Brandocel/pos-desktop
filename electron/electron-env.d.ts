@@ -58,7 +58,16 @@ declare global {
           price: number;
           category?: string;
           flavor?: string;
+          customOption?: string;
+          components?: Array<{
+            slot: number;
+            portion: string;
+            flavor?: string;
+            isSpecialty?: boolean;
+            specialty?: string;
+          }>;
         }>;
+        paymentMethod?: "cash" | "card";
         notes?: string;
         cashReceived: number;
         total: number;
@@ -70,6 +79,11 @@ declare global {
 
       // ✅ CORTE / RESUMEN (ESTO ARREGLA TU ERROR)
       salesSummary: (params: { from: string; to: string }) => Promise<{ ok: boolean; data?: any; message?: string }>;
+
+      settings: {
+        get: (payload: { key: string }) => Promise<{ ok: boolean; value?: string; message?: string }>;
+        set: (payload: { key: string; value: string }) => Promise<{ ok: boolean; value?: string; message?: string }>;
+      };
     };
   }
 }

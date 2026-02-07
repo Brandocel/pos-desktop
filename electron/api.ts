@@ -1,7 +1,21 @@
 // electron/api.ts - Type definitions para la API expuesta
 
 export interface CreateSalePayload {
-  items: { name: string; qty: number; price: number }[];
+  items: {
+    name: string;
+    qty: number;
+    price: number;
+    category?: string;
+    flavor?: string;
+    customOption?: string;
+    components?: Array<{
+      slot: number;
+      portion: string;
+      flavor?: string;
+      isSpecialty?: boolean;
+      specialty?: string;
+    }>;
+  }[];
   paymentMethod: "cash" | "card";   // ✅ NUEVO
   notes?: string;
   cashReceived?: number;
@@ -92,6 +106,27 @@ export interface RestoreFlavorResponse {
   message?: string;
 }
 
+export interface SettingGetPayload {
+  key: string;
+}
+
+export interface SettingSetPayload {
+  key: string;
+  value: string;
+}
+
+export interface SettingGetResponse {
+  ok: boolean;
+  value?: string;
+  message?: string;
+}
+
+export interface SettingSetResponse {
+  ok: boolean;
+  value?: string;
+  message?: string;
+}
+
 export const api = {
   createSale: async (payload: CreateSalePayload): Promise<CreateSaleResponse> => {
     throw new Error("Not implemented in type definition");
@@ -113,6 +148,14 @@ export const api = {
       throw new Error("Not implemented in type definition");
     },
     restore: async (payload: RestoreFlavorPayload): Promise<RestoreFlavorResponse> => {
+      throw new Error("Not implemented in type definition");
+    },
+  },
+  settings: {
+    get: async (payload: SettingGetPayload): Promise<SettingGetResponse> => {
+      throw new Error("Not implemented in type definition");
+    },
+    set: async (payload: SettingSetPayload): Promise<SettingSetResponse> => {
       throw new Error("Not implemented in type definition");
     },
   },

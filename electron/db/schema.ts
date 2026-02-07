@@ -47,6 +47,25 @@ export const schemaSQL = `
     flavor TEXT,
     FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS sale_item_components (
+    id TEXT PRIMARY KEY,
+    sale_item_id TEXT NOT NULL,
+    slot_index INTEGER NOT NULL,
+    portion_name TEXT NOT NULL,
+    component_qty REAL NOT NULL,
+    flavor TEXT,
+    is_specialty INTEGER NOT NULL DEFAULT 0,
+    specialty_name TEXT,
+    upgrade_price REAL NOT NULL DEFAULT 0,
+    FOREIGN KEY (sale_item_id) REFERENCES sale_items(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `;
 
 // Datos iniciales de sabores
@@ -57,6 +76,11 @@ export const initialFlavors = [
   "Talla",
   "Pimienta",
   "Pastor",
+];
+
+// Configuracion inicial
+export const initialSettings = [
+  { key: "specialty_upgrade_price", value: "20" },
 ];
 
 // Datos iniciales de productos

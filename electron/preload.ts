@@ -30,7 +30,22 @@ contextBridge.exposeInMainWorld(
   {
     // ✅ ventas
     createSale: (payload: {
-      items: { name: string; qty: number; price: number; category?: string; flavor?: string }[];
+      items: {
+        name: string;
+        qty: number;
+        price: number;
+        category?: string;
+        flavor?: string;
+        customOption?: string;
+        components?: Array<{
+          slot: number;
+          portion: string;
+          flavor?: string;
+          isSpecialty?: boolean;
+          specialty?: string;
+        }>;
+      }[];
+      paymentMethod?: "cash" | "card";
       notes?: string;
       cashReceived?: number;
       change?: number;
@@ -57,6 +72,11 @@ contextBridge.exposeInMainWorld(
       create: (payload: { name: string }) => ipcRenderer.invoke("flavors:create", payload),
       delete: (payload: { id: string }) => ipcRenderer.invoke("flavors:delete", payload),
       restore: (payload: { id: string }) => ipcRenderer.invoke("flavors:restore", payload),
+    },
+
+    settings: {
+      get: (payload: { key: string }) => ipcRenderer.invoke("settings:get", payload),
+      set: (payload: { key: string; value: string }) => ipcRenderer.invoke("settings:set", payload),
     },
 
     // ✅ productos (admin + ventas)

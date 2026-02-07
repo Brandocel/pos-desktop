@@ -56,6 +56,7 @@ export const productionOrder = [
   "Paquetes",
   "Especialidades",
   "Miércoles",
+  "Upgrades",
   "Extras",
   "Bebidas",
   "Desechables",

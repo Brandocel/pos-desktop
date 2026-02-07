@@ -4,7 +4,13 @@ import { escapeHtml } from "../utils/escapeHtml";
 export function buildTicketHTML(params: {
   businessName: string;
   date: string;
-  items: Array<{ name: string; qty: number; price: number; subtotal: number }>;
+  items: Array<{
+    name: string;
+    qty: number;
+    price: number;
+    subtotal: number;
+    details?: Array<{ label: string; amount?: number }>;
+  }>;
   total: number;
   cashReceived: number;
   change: number;
@@ -13,17 +19,39 @@ export function buildTicketHTML(params: {
 }) {
   const { businessName, date, items, total, cashReceived, change, notes, saleId } = params;
 
+  function formatDetailAmount(v?: number) {
+    const n = Number(v || 0);
+    if (!Number.isFinite(n) || n === 0) return "";
+    const sign = n > 0 ? "+" : "";
+    return `${sign}${money(n)}`;
+  }
+
   const rows = items
-    .map(
-      (i) => `
+    .map((i) => {
+      const baseRow = `
       <div class="row item">
         <div class="col name">${escapeHtml(i.name)}</div>
         <div class="col qty">${i.qty}</div>
         <div class="col price">${money(i.price)}</div>
         <div class="col sub">${money(i.subtotal)}</div>
       </div>
+    `;
+
+      const detailRows = (i.details || [])
+        .map(
+          (d) => `
+      <div class="row detail">
+        <div class="col name">${escapeHtml(d.label)}</div>
+        <div class="col qty"></div>
+        <div class="col price"></div>
+        <div class="col sub">${formatDetailAmount(d.amount)}</div>
+      </div>
     `
-    )
+        )
+        .join("");
+
+      return baseRow + detailRows;
+    })
     .join("");
 
   return `<!doctype html>
@@ -43,6 +71,9 @@ export function buildTicketHTML(params: {
     .row { display: grid; grid-template-columns: 1fr 22px 60px 70px; gap: 6px; align-items: baseline; }
     .row.header { font-weight: 800; font-size: 12px; }
     .row.item { font-size: 12px; padding: 3px 0; }
+    .row.detail { font-size: 11px; color: #555; padding: 2px 0; }
+    .row.detail .name { padding-left: 10px; }
+    .row.detail .sub { font-weight: 700; color: #111; }
     .col.qty, .col.price, .col.sub { text-align: right; }
     .totals { font-size: 13px; }
     .totals .line { display: flex; justify-content: space-between; margin: 3px 0; }

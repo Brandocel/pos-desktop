@@ -5,7 +5,7 @@ import fs from "node:fs";
 import { app } from "electron";
 import crypto from "crypto";
 
-import { schemaSQL, initialFlavors, initialProducts, packageIncludes } from "./schema";
+import { schemaSQL, initialFlavors, initialProducts, packageIncludes, initialSettings } from "./schema";
 
 let db: Database.Database | null = null;
 
@@ -25,6 +25,7 @@ export function getDb() {
   // Migraciones (no tocan ventas)
   migrateSaleItems();
   migrateSales();
+  ensureSettingsDefaults();
 
   // ✅ SINCRONIZA CATÁLOGO seguro
   // - backup automático
@@ -329,6 +330,23 @@ function migrateSales() {
       console.log("✅ Migración: columna payment_method agregada a sales");
     } catch (err) {
       console.warn("Migración sales omitida:", err);
+    }
+  }
+}
+
+function ensureSettingsDefaults() {
+  if (!db) return;
+
+  const select = db.prepare("SELECT key FROM settings WHERE key = ?");
+  const insert = db.prepare(
+    "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)"
+  );
+
+  const now = nowISO();
+  for (const s of initialSettings) {
+    const existing = select.get(s.key) as { key?: string } | undefined;
+    if (!existing?.key) {
+      insert.run(s.key, String(s.value ?? ""), now);
     }
   }
 }

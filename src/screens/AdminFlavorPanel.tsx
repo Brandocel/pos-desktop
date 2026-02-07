@@ -59,6 +59,11 @@ export function AdminFlavorPanel() {
 
   const [newFlavorName, setNewFlavorName] = useState("");
 
+  const [upgradePrice, setUpgradePrice] = useState<number>(20);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [upgradeSaving, setUpgradeSaving] = useState(false);
+  const [upgradeDirty, setUpgradeDirty] = useState(false);
+
   // Toast system (sin libs)
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastTimers = useRef<Record<string, number>>({});
@@ -88,6 +93,28 @@ export function AdminFlavorPanel() {
       Object.values(toastTimers.current).forEach((t) => window.clearTimeout(t));
       toastTimers.current = {};
     };
+  }, []);
+
+  useEffect(() => {
+    async function loadUpgradePrice() {
+      try {
+        setUpgradeLoading(true);
+        const res = await window.api.settings?.get({ key: "specialty_upgrade_price" });
+        if (res?.ok && res?.value != null) {
+          const val = Number(res.value);
+          if (Number.isFinite(val)) {
+            setUpgradePrice(val);
+            setUpgradeDirty(false);
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        pushToast("error", "No se pudo cargar", "Error al leer el precio de upgrade.");
+      } finally {
+        setUpgradeLoading(false);
+      }
+    }
+    loadUpgradePrice();
   }, []);
 
   const canCreate = useMemo(() => newFlavorName.trim().length >= 2, [newFlavorName]);
@@ -184,6 +211,28 @@ export function AdminFlavorPanel() {
     }
   };
 
+  const handleSaveUpgradePrice = async () => {
+    try {
+      setUpgradeSaving(true);
+      const res = await window.api.settings?.set({
+        key: "specialty_upgrade_price",
+        value: String(Number(upgradePrice) || 0),
+      });
+
+      if (res?.ok) {
+        pushToast("success", "Upgrade actualizado", "Se guardo el nuevo precio.");
+        setUpgradeDirty(false);
+      } else {
+        pushToast("error", "No se pudo guardar", res?.message || "Intenta de nuevo.");
+      }
+    } catch (err) {
+      console.error(err);
+      pushToast("error", "Error de conexion", "No se pudo guardar el precio.");
+    } finally {
+      setUpgradeSaving(false);
+    }
+  };
+
   // Paginación compacta: muestra [1] ... [p-1] [p] [p+1] ... [last]
   const pageButtons = useMemo(() => {
     const total = pagination.totalPages || 0;
@@ -249,6 +298,52 @@ export function AdminFlavorPanel() {
           <div className="text-xs text-zinc-500">Administración</div>
           <div className="text-3xl font-extrabold tracking-tight">Gestionar Sabores</div>
           <div className="text-sm text-zinc-600 mt-1">Crea y administra el catálogo de sabores.</div>
+        </div>
+
+        {/* Panel: Crear */}
+        <div className="border border-zinc-200 bg-white rounded-none mb-4">
+          <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-extrabold tracking-tight">Precio de upgrade</div>
+              <div className="text-xs text-zinc-500">Especialidades por porcion.</div>
+            </div>
+          </div>
+
+          <div className="p-4 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Precio</label>
+              <input
+                type="number"
+                value={upgradePrice}
+                onChange={(e) => {
+                  setUpgradePrice(Number(e.target.value));
+                  setUpgradeDirty(true);
+                }}
+                className={[
+                  "h-10 w-full px-3 border bg-white text-sm outline-none",
+                  "border-zinc-200 focus:border-zinc-400",
+                  "rounded-none",
+                ].join(" ")}
+                disabled={upgradeLoading}
+              />
+              <div className="text-[11px] text-zinc-500 mt-1">Valor actual por upgrade.</div>
+            </div>
+
+            <button
+              onClick={handleSaveUpgradePrice}
+              disabled={upgradeSaving || upgradeLoading || !upgradeDirty}
+              className={[
+                "h-10 px-4 text-xs font-extrabold border",
+                "rounded-none",
+                !upgradeSaving && !upgradeLoading && upgradeDirty
+                  ? "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
+                  : "border-zinc-200 bg-zinc-100 text-zinc-400 cursor-not-allowed",
+              ].join(" ")}
+              type="button"
+            >
+              {upgradeSaving ? "Guardando…" : "Guardar"}
+            </button>
+          </div>
         </div>
 
         {/* Panel: Crear */}

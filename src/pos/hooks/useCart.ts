@@ -4,7 +4,21 @@ import type { CartItem } from "../types";
 export function useCart() {
   const [cart, setCart] = useState<CartItem[]>([]);
 
-  const total = useMemo(() => cart.reduce((a, b) => a + b.subtotal, 0), [cart]);
+  function safeNum(v: any) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function upgradeTotalForItem(item: CartItem) {
+    const count = safeNum(item.meta?.upgradeCount);
+    const price = safeNum(item.meta?.upgradePrice);
+    return count * price * safeNum(item.qty);
+  }
+
+  const total = useMemo(
+    () => cart.reduce((a, b) => a + safeNum(b.subtotal) + upgradeTotalForItem(b), 0),
+    [cart]
+  );
 
   function upsertItem(newItem: CartItem) {
     setCart((prev) => {

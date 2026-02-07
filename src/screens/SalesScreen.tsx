@@ -108,6 +108,11 @@ export function SalesScreen() {
   const [desNote, setDesNote] = useState<string>("");
   const [pickedFlavors, setPickedFlavors] = useState<string[]>([]);
   const [flavorSlots, setFlavorSlots] = useState(1);
+  const [portionSlots, setPortionSlots] = useState<string[]>([]);
+  const [upgradeSlots, setUpgradeSlots] = useState<boolean[]>([]);
+  const [pickedSpecialties, setPickedSpecialties] = useState<string[]>([]);
+  const [specialties, setSpecialties] = useState<string[]>([]);
+  const [upgradePrice, setUpgradePrice] = useState<number>(20);
 
   // ==========================
   // ✅ Helpers para opciones custom (Pirata / Paquete Pirata / acentos)
@@ -128,6 +133,69 @@ export function SalesScreen() {
     n = n.replace(/^súper\s+/i, "");
     n = n.replace(/\s+/g, " ").trim();
     return n;
+  }
+
+  function safeNum(v: any) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function isBundleCategory(cat?: Category) {
+    return cat === "Paquetes" || cat === "Miércoles";
+  }
+
+  function normalizePortionName(raw: string) {
+    const n = String(raw ?? "").toLowerCase();
+    if (n.includes("1/4")) return "1/4 pollo";
+    if (n.includes("1/2")) return "1/2 pollo";
+    if (n.includes("pollo")) return "1 pollo";
+    return String(raw ?? "").trim() || "1 pollo";
+  }
+
+  function extractSpecialtyName(name: string) {
+    const raw = String(name ?? "").trim();
+    if (!raw) return "";
+    const lower = raw.toLowerCase();
+    const cutPoints = ["1/2", "1 ", "pollo"];
+    for (const token of cutPoints) {
+      const idx = lower.indexOf(token);
+      if (idx > 0) return raw.slice(0, idx).trim();
+    }
+    return raw;
+  }
+
+  const packageIncludesIndex = useMemo(() => {
+    const m = new Map<string, { name: string; qty: number }[]>();
+    for (const p of packageIncludes) {
+      const key = normKey(p.packageName);
+      m.set(
+        key,
+        (p.extras ?? []).map((e) => ({ name: e.name, qty: safeNum(e.qty) }))
+      );
+    }
+    return m;
+  }, []);
+
+  function getPortionSlotsForProduct(name: string) {
+    const base = (name ?? "").trim();
+    const key = normKey(base);
+    const extras = packageIncludesIndex.get(key) ?? [];
+
+    const slots: string[] = [];
+    for (const ex of extras) {
+      if (!String(ex.name ?? "").toLowerCase().includes("pollo")) continue;
+      const portion = normalizePortionName(ex.name);
+      const count = Math.max(1, Math.round(safeNum(ex.qty) || 1));
+      for (let i = 0; i < count; i += 1) slots.push(portion);
+    }
+
+    if (slots.length > 0) return slots;
+
+    if (String(name ?? "").toLowerCase().includes("pollo")) {
+      return [normalizePortionName(name)];
+    }
+
+    return ["1 pollo"];
   }
 
   const customOptionsIndex = useMemo(() => {
@@ -176,9 +244,10 @@ export function SalesScreen() {
   useEffect(() => {
     async function load() {
       try {
-        const [productsRes, flavorsRes] = await Promise.all([
+        const [productsRes, flavorsRes, settingsRes] = await Promise.all([
           window.api.products.salesList(),
           window.api.getFlavors(),
+          window.api.settings?.get({ key: "specialty_upgrade_price" }),
         ]);
 
         if (productsRes.ok && productsRes.products) {
@@ -192,12 +261,26 @@ export function SalesScreen() {
             description: p.description,
           }));
           setDbProducts(mapped);
+
+          const specialtySet = new Set<string>();
+          for (const prod of mapped) {
+            if (prod.category !== "Especialidades") continue;
+            const sName = extractSpecialtyName(prod.name);
+            if (sName) specialtySet.add(sName);
+          }
+          const specialtyList = Array.from(specialtySet.values()).sort();
+          setSpecialties(specialtyList);
         }
 
         if (flavorsRes.ok && flavorsRes.rows) {
           const names = flavorsRes.rows.map((f: any) => f.name);
           setDbFlavors(names);
           if (names.length > 0) setPickedFlavor(names[0]);
+        }
+
+        if (settingsRes?.ok && settingsRes?.value != null) {
+          const price = Number(settingsRes.value);
+          if (Number.isFinite(price)) setUpgradePrice(price);
         }
       } catch (e) {
         console.error(e);
@@ -234,19 +317,83 @@ export function SalesScreen() {
     setPendingCustomOption(undefined);
   }
 
-  function polloUnitsFromName(name: string) {
-    const lower = name.toLowerCase();
-    if (!lower.includes("pollo")) return 0;
-    if (lower.includes("1/4")) return 0.25;
-    if (lower.includes("1/2")) return 0.5;
-    return 1;
+  function upgradeTotalsForItem(item: CartItem) {
+    const count = safeNum(item.meta?.upgradeCount);
+    const price = safeNum(item.meta?.upgradePrice);
+    const perItem = count * price;
+    const total = perItem * safeNum(item.qty);
+    return { count, price, perItem, total };
   }
 
-  function flavorSlotsForProduct(name: string) {
-    const pkg = packageIncludes.find((p) => p.packageName === name);
-    if (!pkg) return 1;
-    const units = pkg.extras.reduce((acc, extra) => acc + polloUnitsFromName(extra.name) * (extra.qty ?? 1), 0);
-    return Math.max(1, Math.ceil(units || 1));
+  function formatPortionLabel(portion: string) {
+    const p = String(portion ?? "").toLowerCase();
+    if (p.includes("1/4")) return "Pollo 1/4";
+    if (p.includes("1/2")) return "Pollo 1/2";
+    if (p.includes("pollo")) return "Pollo 1";
+    return portion || "Pollo";
+  }
+
+  function buildTicketItemsFromCart(list: CartItem[]) {
+    const rows: Array<{
+      name: string;
+      qty: number;
+      price: number;
+      subtotal: number;
+      details?: Array<{ label: string; amount?: number }>;
+    }> = [];
+
+    for (const item of list) {
+      const isBundle = isBundleCategory(item.meta?.category);
+      const components = item.meta?.components || [];
+      const upgrade = upgradeTotalsForItem(item);
+
+      if (isBundle && components.length > 0) {
+        const details: Array<{ label: string; amount?: number }> = [];
+
+        for (const c of components) {
+          const portionLabel = formatPortionLabel(c.portion);
+          if (c.isSpecialty) {
+            details.push({
+              label: `${portionLabel} (Especialidad ${c.specialty || ""})`.trim(),
+              amount: upgrade.price,
+            });
+          } else {
+            details.push({
+              label: `Sabor ${portionLabel}: ${c.flavor || "Sin sabor"}`,
+            });
+          }
+        }
+
+        rows.push({
+          name: item.baseName,
+          qty: item.qty,
+          price: item.price,
+          subtotal: item.subtotal,
+          details,
+        });
+
+        if (upgrade.count > 0) {
+          const totalUpgrades = upgrade.count * safeNum(item.qty);
+          rows.push({
+            name: `Upgrade Especialidades (${totalUpgrades} x ${money(upgrade.price)})`,
+            qty: totalUpgrades,
+            price: upgrade.price,
+            subtotal: upgrade.total,
+          });
+        }
+
+        continue;
+      }
+
+      rows.push({
+        name: item.name,
+        qty: item.qty,
+        price: item.price,
+        subtotal: item.subtotal,
+      });
+    }
+
+    return rows;
   }
 
   function addProduct(product: Product) {
@@ -262,8 +409,15 @@ export function SalesScreen() {
     }
 
     if (product.requiresFlavor) {
-      const slots = flavorSlotsForProduct(product.name);
+      const portions = getPortionSlotsForProduct(product.name);
+      const slots = portions.length || 1;
       setFlavorSlots(slots);
+      setPortionSlots(portions);
+
+      setUpgradeSlots(Array.from({ length: slots }, () => false));
+      setPickedSpecialties(
+        Array.from({ length: slots }, () => specialties[0] || "Veracruz")
+      );
 
       if (dbFlavors.length > 0) {
         const first = dbFlavors[0];
@@ -294,8 +448,33 @@ export function SalesScreen() {
     const suffixPromo = isPromo ? " (PROMO)" : "";
 
     const chosen = (flavorSlots > 1 ? pickedFlavors : [pickedFlavor]).filter(Boolean);
-    const flavorLabel = chosen.length > 0 ? chosen.join(" / ") : "Sin sabor";
-    const flavorValue = chosen.length > 0 ? chosen.join(" | ") : undefined;
+    const slotFlavors = chosen.length > 0 ? chosen : ["Sin sabor"];
+    const portions = portionSlots?.length ? portionSlots : Array.from({ length: flavorSlots }, () => "1 pollo");
+    const allowUpgrade = isBundleCategory(p.category);
+
+    const components = portions.map((portion, slotIdx) => {
+      const isSpecialty = allowUpgrade && !!upgradeSlots?.[slotIdx];
+      const specialty = isSpecialty ? pickedSpecialties?.[slotIdx] : undefined;
+      const flavor = !isSpecialty ? slotFlavors?.[slotIdx] : undefined;
+      return {
+        slot: slotIdx,
+        portion,
+        flavor,
+        isSpecialty,
+        specialty,
+      };
+    });
+
+    const upgradeCount = components.filter((c) => c.isSpecialty).length;
+    const flavorsOnly = components.map((c) => c.flavor).filter(Boolean) as string[];
+    const specialtiesOnly = components.map((c) => c.specialty).filter(Boolean) as string[];
+
+    const labelSlots = components.map((c) =>
+      c.isSpecialty ? `Especialidad ${c.specialty}` : c.flavor || "Sin sabor"
+    );
+
+    const flavorLabel = labelSlots.length > 0 ? labelSlots.join(" / ") : "Sin sabor";
+    const flavorValue = labelSlots.length > 0 ? labelSlots.join(" | ") : undefined;
 
     // ✅ etiqueta bonita de extra
     const customOptLabel = pendingCustomOption ? ` (${getPrettyCustomOptionLabel(p.name, pendingCustomOption)})` : "";
@@ -312,7 +491,12 @@ export function SalesScreen() {
       subtotal: p.price,
       meta: {
         flavor: flavorValue,
-        flavorList: chosen,
+        flavorList: flavorsOnly,
+        specialtyList: specialtiesOnly,
+        portionList: portions,
+        components,
+        upgradeCount,
+        upgradePrice,
         customOption: pendingCustomOption,
         promo: isPromo,
         category: p.category,
@@ -341,6 +525,22 @@ export function SalesScreen() {
     });
   }
 
+  function handleToggleUpgradeSlot(slot: number, enabled: boolean) {
+    setUpgradeSlots((prev) => {
+      const arr = prev.length ? [...prev] : Array.from({ length: flavorSlots }, () => false);
+      arr[slot] = enabled;
+      return arr;
+    });
+  }
+
+  function handlePickSpecialtySlot(slot: number, specialty: string) {
+    setPickedSpecialties((prev) => {
+      const arr = prev.length ? [...prev] : Array.from({ length: flavorSlots }, () => specialty);
+      arr[slot] = specialty;
+      return arr;
+    });
+  }
+
   function confirmCustomOption() {
     const p = customOptionsModal.product;
     if (!p) return;
@@ -350,8 +550,15 @@ export function SalesScreen() {
 
     // After choosing custom option, check if product requires flavor
     if (p.requiresFlavor) {
-      const slots = flavorSlotsForProduct(p.name);
+      const portions = getPortionSlotsForProduct(p.name);
+      const slots = portions.length || 1;
       setFlavorSlots(slots);
+      setPortionSlots(portions);
+
+      setUpgradeSlots(Array.from({ length: slots }, () => false));
+      setPickedSpecialties(
+        Array.from({ length: slots }, () => specialties[0] || "Veracruz")
+      );
 
       if (dbFlavors.length > 0) {
         const first = dbFlavors[0];
@@ -416,6 +623,7 @@ export function SalesScreen() {
         category: i.meta?.category,
         flavor: i.meta?.flavor,
         customOption: i.meta?.customOption,
+        components: i.meta?.components,
       })),
       paymentMethod,
       notes: notes.trim() || undefined,
@@ -436,7 +644,7 @@ export function SalesScreen() {
       businessName: "Pollo Pirata POS",
       date: saleDate,
       saleId: (res as any)?.data?.id ?? (res as any)?.data?.folio ?? (res as any)?.saleId,
-      items: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price, subtotal: i.subtotal })),
+      items: buildTicketItemsFromCart(cart),
       total,
       cashReceived,
       change,
@@ -738,6 +946,10 @@ export function SalesScreen() {
                   <div className="space-y-3">
                     {cart.map((item: CartItem) => {
                       const selected = selectedTicketKey === item.key;
+                      const upgrade = upgradeTotalsForItem(item);
+                      const lineTotal = safeNum(item.subtotal) + safeNum(upgrade.total);
+                      const unitTotal = safeNum(item.price) + safeNum(upgrade.perItem);
+                      const totalUpgrades = upgrade.count * safeNum(item.qty);
 
                       return (
                         <div
@@ -755,9 +967,21 @@ export function SalesScreen() {
                               <div className="font-extrabold text-sm truncate text-zinc-900">{item.name}</div>
 
                               <div className="mt-1 flex flex-wrap gap-2">
-                                {item.meta?.flavor ? (
+                                {item.meta?.flavorList && item.meta.flavorList.length > 0 ? (
                                   <span className={chip}>
-                                    Sabor: <b>{item.meta.flavor}</b>
+                                    Sabores: <b>{item.meta.flavorList.join(" / ")}</b>
+                                  </span>
+                                ) : null}
+
+                                {item.meta?.specialtyList && item.meta.specialtyList.length > 0 ? (
+                                  <span className={chip}>
+                                    Especialidad: <b>{item.meta.specialtyList.join(" / ")}</b>
+                                  </span>
+                                ) : null}
+
+                                {upgrade.count > 0 ? (
+                                  <span className={chip}>
+                                    Upgrade: <b>{totalUpgrades} x {money(upgrade.price)}</b>
                                   </span>
                                 ) : null}
 
@@ -773,7 +997,7 @@ export function SalesScreen() {
                             </div>
 
                             <div className="text-right">
-                              <div className="text-sm font-extrabold text-zinc-900">{money(item.subtotal)}</div>
+                              <div className="text-sm font-extrabold text-zinc-900">{money(lineTotal)}</div>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -815,7 +1039,7 @@ export function SalesScreen() {
                             </div>
 
                             <div className="text-xs text-zinc-500">
-                              Unitario: <span className="font-extrabold text-zinc-800">{money(item.price)}</span>
+                              Unitario: <span className="font-extrabold text-zinc-800">{money(unitTotal)}</span>
                             </div>
                           </div>
                         </div>
@@ -925,11 +1149,19 @@ export function SalesScreen() {
             ui={ui}
             product={flavorModal.product}
             flavors={dbFlavors}
+            specialties={specialties}
+            upgradePrice={upgradePrice}
+            allowUpgrade={isBundleCategory(flavorModal.product?.category)}
+            portionLabels={portionSlots}
+            upgradeSlots={upgradeSlots}
+            pickedSpecialties={pickedSpecialties}
             picked={pickedFlavor}
             pickedList={pickedFlavors}
             slots={flavorSlots}
             onPick={handlePickFlavor}
             onPickSlot={handlePickFlavorSlot}
+            onToggleUpgradeSlot={handleToggleUpgradeSlot}
+            onPickSpecialtySlot={handlePickSpecialtySlot}
             onClose={() => setFlavorModal({ open: false })}
             onConfirm={confirmFlavor}
           />

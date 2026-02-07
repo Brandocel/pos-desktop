@@ -90,7 +90,16 @@ declare global {
           price: number;
           category?: string;
           flavor?: string;
+          customOption?: string;
+          components?: Array<{
+            slot: number;
+            portion: string;
+            flavor?: string;
+            isSpecialty?: boolean;
+            specialty?: string;
+          }>;
         }>;
+        paymentMethod?: "cash" | "card";
         notes?: string;
         cashReceived?: number;
         change?: number;
@@ -115,6 +124,11 @@ declare global {
         create: (payload: { name: string }) => Promise<{ ok: boolean; message?: string; id?: string; name?: string }>;
         delete: (payload: { id: string }) => Promise<{ ok: boolean; message?: string }>;
         restore: (payload: { id: string }) => Promise<{ ok: boolean; message?: string }>;
+      };
+
+      settings: {
+        get: (payload: { key: string }) => Promise<{ ok: boolean; value?: string; message?: string }>;
+        set: (payload: { key: string; value: string }) => Promise<{ ok: boolean; value?: string; message?: string }>;
       };
 
       products: {
