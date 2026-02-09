@@ -112,13 +112,14 @@ export const initialProducts = [
 
   // EXTRAS (NO requieren sabor)
   { name: "Spaghetti", category: "Extras", price: 40, requires_flavor: 0 },
-  { name: "Ensalada de coditos", category: "Extras", price: 60, requires_flavor: 0 },
+  { name: "Ensalada de coditos", category: "Extras", price: 40, requires_flavor: 0 },
   { name: "Arroz", category: "Extras", price: 30, requires_flavor: 0 },
   { name: "Frijol", category: "Extras", price: 20, requires_flavor: 0 },
   { name: "Purée de papa", category: "Extras", price: 45, requires_flavor: 0 },
   { name: "Papa al horno", category: "Extras", price: 30, requires_flavor: 0 },
   { name: "Postre", category: "Extras", price: 25, requires_flavor: 0 },
   { name: "Tortillas", category: "Extras", price: 20, requires_flavor: 0 },
+  { name: "1/2 Tortillas", category: "Extras", price: 10, requires_flavor: 0 },
   { name: "Salsa", category: "Extras", price: 20, requires_flavor: 0 },
   { name: "Tacos dorados (4 pzas)", category: "Extras", price: 60, requires_flavor: 0 },
   { name: "Desechable", category: "Extras", price: 5, requires_flavor: 0 },
