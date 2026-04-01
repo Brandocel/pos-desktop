@@ -86,47 +86,47 @@ export const initialSettings = [
 // Datos iniciales de productos
 export const initialProducts = [
   // POLLOS (requieren sabor)
-  { name: "1/4 pollo", category: "Pollos", price: 78, requires_flavor: 1 },
-  { name: "1/2 pollo", category: "Pollos", price: 135, requires_flavor: 1 },
-  { name: "1 pollo", category: "Pollos", price: 245, requires_flavor: 1 },
+  { name: "1/4 pollo", category: "Pollos", price: 82, requires_flavor: 1 },
+  { name: "1/2 pollo", category: "Pollos", price: 140, requires_flavor: 1 },
+  { name: "1 pollo", category: "Pollos", price: 265, requires_flavor: 1 },
 
   // ESPECIALIDADES (NO requieren sabor)
-  { name: "Veracruz 1 pollo", category: "Especialidades", price: 255, requires_flavor: 0 },
-  { name: "Veracruz 1/2 pollo", category: "Especialidades", price: 145, requires_flavor: 0 },
-  { name: "Peninsular 1 pollo", category: "Especialidades", price: 255, requires_flavor: 0 },
-  { name: "Peninsular 1/2 pollo", category: "Especialidades", price: 145, requires_flavor: 0 },
+  { name: "Veracruz 1 pollo", category: "Especialidades", price: 270, requires_flavor: 0 },
+  { name: "Veracruz 1/2 pollo", category: "Especialidades", price: 155, requires_flavor: 0 },
+  { name: "Peninsular 1 pollo", category: "Especialidades", price: 270, requires_flavor: 0 },
+  { name: "Peninsular 1/2 pollo", category: "Especialidades", price: 155, requires_flavor: 0 },
 
   // PAQUETES (requieren sabor)
-  { name: "Acompañes", category: "Paquetes", price: 95, requires_flavor: 1 },
-  { name: "Amigo", category: "Paquetes", price: 190, requires_flavor: 1 },
-  { name: "Sorpresa", category: "Paquetes", price: 280, requires_flavor: 1 },
-  { name: "Primavera", category: "Paquetes", price: 285, requires_flavor: 1 },
-  { name: "Pirata", category: "Paquetes", price: 305, requires_flavor: 1 },
-  { name: "Taquitos", category: "Paquetes", price: 300, requires_flavor: 1 },
-  { name: "Apollo", category: "Paquetes", price: 345, requires_flavor: 1 },
+  { name: "Acompañes", category: "Paquetes", price: 99, requires_flavor: 1 },
+  { name: "Amigo", category: "Paquetes", price: 199, requires_flavor: 1 },
+  { name: "Sorpresa", category: "Paquetes", price: 270, requires_flavor: 1 },
+  { name: "Primavera", category: "Paquetes", price: 295, requires_flavor: 1 },
+  { name: "Pirata", category: "Paquetes", price: 315, requires_flavor: 1 },
+  { name: "Taquitos", category: "Paquetes", price: 320, requires_flavor: 1 },
+  { name: "Apollo", category: "Paquetes", price: 265, requires_flavor: 1 },
   { name: "Paquete Especial", category: "Paquetes", price: 380, requires_flavor: 1 },
-  { name: "Tesoro", category: "Paquetes", price: 570, requires_flavor: 1 },
+  { name: "Tesoro", category: "Paquetes", price: 595, requires_flavor: 1 },
 
   // MIÉRCOLES (requieren sabor)
-  { name: "Súper Miércoles", category: "Miércoles", price: 209, requires_flavor: 1 },
+  { name: "Súper Miércoles", category: "Miércoles", price: 220, requires_flavor: 1 },
 
   // EXTRAS (NO requieren sabor)
-  { name: "Spaghetti", category: "Extras", price: 40, requires_flavor: 0 },
-  { name: "Ensalada de coditos", category: "Extras", price: 40, requires_flavor: 0 },
+  { name: "Spaghetti", category: "Extras", price: 45, requires_flavor: 0 },
+  { name: "Ensalada de coditos", category: "Extras", price: 45, requires_flavor: 0 },
   { name: "Arroz", category: "Extras", price: 30, requires_flavor: 0 },
-  { name: "Frijol", category: "Extras", price: 20, requires_flavor: 0 },
-  { name: "Purée de papa", category: "Extras", price: 45, requires_flavor: 0 },
+  { name: "Frijol", category: "Extras", price: 25, requires_flavor: 0 },
+  { name: "Purée de papa", category: "Extras", price: 35, requires_flavor: 0 },
   { name: "Papa al horno", category: "Extras", price: 30, requires_flavor: 0 },
   { name: "Postre", category: "Extras", price: 25, requires_flavor: 0 },
-  { name: "Tortillas", category: "Extras", price: 20, requires_flavor: 0 },
+  { name: "Tortillas", category: "Extras", price: 30, requires_flavor: 0 },
   { name: "1/2 Tortillas", category: "Extras", price: 10, requires_flavor: 0 },
   { name: "Salsa", category: "Extras", price: 20, requires_flavor: 0 },
-  { name: "Tacos dorados (4 pzas)", category: "Extras", price: 60, requires_flavor: 0 },
+  { name: "Tacos dorados (4 pzas)", category: "Extras", price: 70, requires_flavor: 0 },
   { name: "Desechable", category: "Extras", price: 5, requires_flavor: 0 },
 
   // BEBIDAS (NO requieren sabor)
-  { name: "Agua fresca 1L", category: "Bebidas", price: 45, requires_flavor: 0 },
-  { name: "Agua fresca 500 ml", category: "Bebidas", price: 30, requires_flavor: 0 },
+  { name: "Agua fresca 1L", category: "Bebidas", price: 50, requires_flavor: 0 },
+  { name: "Agua fresca 500 ml", category: "Bebidas", price: 35, requires_flavor: 0 },
   // { name: "Refresco 2L", category: "Bebidas", price: 50, requires_flavor: 0 },
   // { name: "Refresco 600 ml", category: "Bebidas", price: 30, requires_flavor: 0 },
 ];

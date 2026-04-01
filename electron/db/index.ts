@@ -205,10 +205,12 @@ function syncCatalogSafe() {
     const softDeleteProduct = database.prepare(`UPDATE products SET is_deleted = 1 WHERE id = ?`);
 
     // Inserta o actualiza los que están en schema.ts
+    // ⚠️ IMPORTANTE: Sincronización SEGURA - NO cambia precios de productos existentes
     for (const [key, desired] of wantedProducts.entries()) {
       const existing = productByKey.get(key);
 
       if (!existing) {
+        // No existe → crear con valores del schema (incluyendo precio)
         insertProduct.run(
           crypto.randomUUID(),
           desired.name,
@@ -225,16 +227,20 @@ function syncCatalogSafe() {
       const existingReq = safeNum(existing.requires_flavor) ? 1 : 0;
       const existingDeleted = safeNum(existing.is_deleted);
 
+      // Solo actualizar si:
+      // - Categoría cambió, O
+      // - requires_flavor cambió, O
+      // - Estaba eliminado (is_deleted=1)
+      // PERO NO cambiar el precio (protege cambios manuales del usuario)
       const needsUpdate =
         existingCategory !== desired.category ||
-        existingPrice !== desired.price ||
         existingReq !== desired.requires_flavor ||
         existingDeleted !== 0;
 
       if (needsUpdate) {
         updateProduct.run(
           desired.category,
-          desired.price,
+          existingPrice, // 🔥 MANTENER PRECIO EXISTENTE, NO cambiar al del schema
           desired.requires_flavor,
           existing.id
         );

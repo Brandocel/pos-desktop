@@ -1,6 +1,7 @@
 // electron/ipc/products.ipc.ts
 import { ipcMain } from "electron";
 import { getDb } from "../db";
+import { initialProducts } from "../db/schema";
 import crypto from "crypto";
 
 export function registerProductsIpc() {
@@ -270,5 +271,54 @@ export function registerProductsIpc() {
 
     db.prepare("UPDATE products SET is_deleted = 0 WHERE id = ?").run(payload.id);
     return { ok: true };
+  });
+
+  // ✅ Resetear TODOS los precios a los valores de schema.ts
+  ipcMain.handle("products:resetPrices", () => {
+    const db = getDb();
+
+    try {
+      const tx = db.transaction(() => {
+        // Obtén los productos actuales
+        const allDb = db
+          .prepare(`SELECT id, name FROM products WHERE is_deleted = 0`)
+          .all() as Array<{ id: string; name: string }>;
+
+        // Obtén los precios del schema
+        const priceMap = new Map(
+          initialProducts.map((p) => [
+            String(p.name).toLowerCase().trim(),
+            { price: p.price },
+          ])
+        );
+
+        // Actualiza cada uno
+        const updateStmt = db.prepare(`UPDATE products SET price = ? WHERE id = ?`);
+        let updated = 0;
+        for (const row of allDb) {
+          const key = row.name.toLowerCase().trim();
+          const priceInfo = priceMap.get(key);
+          if (priceInfo) {
+            updateStmt.run(priceInfo.price, row.id);
+            updated++;
+          }
+        }
+
+        return updated;
+      });
+
+      const updated = tx();
+      return {
+        ok: true,
+        message: `✅ ${updated} precios reseteados a valores de catálogo.`,
+        updated,
+      };
+    } catch (err) {
+      console.error(err);
+      return {
+        ok: false,
+        message: "Error al resetear precios.",
+      };
+    }
   });
 }

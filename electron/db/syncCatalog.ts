@@ -141,13 +141,14 @@ export function syncCatalogSafe(db: Database) {
     const setProductActive = db.prepare(`UPDATE products SET is_deleted = 0 WHERE id = ?`);
     const setProductDeleted = db.prepare(`UPDATE products SET is_deleted = 1 WHERE id = ?`);
 
-    // upsert / update
+    // upsert / update - IMPORTANTE: NO cambia precios de productos existentes
     for (const [name, desired] of wantedProducts.entries()) {
       if (!name) continue;
 
       const existing = productByName.get(name);
 
       if (!existing) {
+        // No existe → crear con valores del schema (incluyendo precio)
         insertProduct.run({
           id: uid("prd"),
           name: desired.name,
@@ -161,16 +162,19 @@ export function syncCatalogSafe(db: Database) {
 
       if (safeNum(existing.is_deleted) === 1) setProductActive.run(existing.id);
 
+      // Solo actualizar si:
+      // - Categoría cambió, O
+      // - requires_flavor cambió
+      // PERO NO cambiar el precio (protege cambios manuales del usuario)
       const needsUpdate =
         norm(existing.category) !== desired.category ||
-        safeNum(existing.price) !== desired.price ||
         safeNum(existing.requires_flavor) !== desired.requires_flavor;
 
       if (needsUpdate) {
         updateProduct.run({
           id: existing.id,
           category: desired.category,
-          price: desired.price,
+          price: safeNum(existing.price), // 🔥 MANTENER PRECIO EXISTENTE
           requires_flavor: desired.requires_flavor,
         });
       }
