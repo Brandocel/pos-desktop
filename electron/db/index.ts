@@ -1,4 +1,3 @@
-// electron/db/index.ts
 import Database from "better-sqlite3";
 import path from "node:path";
 import fs from "node:fs";
@@ -142,7 +141,12 @@ function syncCatalogSafe() {
       .all() as Array<{ id: string; name: string; is_deleted: number }>;
 
     const flavorByName = new Map<string, { id: string; is_deleted: number }>();
-    for (const f of allFlavors) flavorByName.set(String(f.name).trim(), { id: f.id, is_deleted: safeNum(f.is_deleted) });
+    for (const f of allFlavors) {
+      flavorByName.set(String(f.name).trim(), {
+        id: f.id,
+        is_deleted: safeNum(f.is_deleted),
+      });
+    }
 
     const insertFlavor = database.prepare(
       `INSERT INTO flavors (id, name, is_deleted, created_at) VALUES (?, ?, 0, ?)`
@@ -186,7 +190,9 @@ function syncCatalogSafe() {
       }>;
 
     const productByKey = new Map<string, (typeof allProducts)[number]>();
-    for (const p of allProducts) productByKey.set(normalizeName(p.name), p);
+    for (const p of allProducts) {
+      productByKey.set(normalizeName(p.name), p);
+    }
 
     const insertProduct = database.prepare(
       `INSERT INTO products (id, name, category, price, requires_flavor, flavor_id, is_deleted, created_at)
@@ -204,13 +210,12 @@ function syncCatalogSafe() {
 
     const softDeleteProduct = database.prepare(`UPDATE products SET is_deleted = 1 WHERE id = ?`);
 
-    // Inserta o actualiza los que están en schema.ts
-    // ⚠️ IMPORTANTE: Sincronización SEGURA - NO cambia precios de productos existentes
+    // ✅ Inserta o actualiza los que están en schema.ts
+    // Ahora SÍ sincroniza el precio desde initialProducts
     for (const [key, desired] of wantedProducts.entries()) {
       const existing = productByKey.get(key);
 
       if (!existing) {
-        // No existe → crear con valores del schema (incluyendo precio)
         insertProduct.run(
           crypto.randomUUID(),
           desired.name,
@@ -227,20 +232,16 @@ function syncCatalogSafe() {
       const existingReq = safeNum(existing.requires_flavor) ? 1 : 0;
       const existingDeleted = safeNum(existing.is_deleted);
 
-      // Solo actualizar si:
-      // - Categoría cambió, O
-      // - requires_flavor cambió, O
-      // - Estaba eliminado (is_deleted=1)
-      // PERO NO cambiar el precio (protege cambios manuales del usuario)
       const needsUpdate =
         existingCategory !== desired.category ||
+        existingPrice !== desired.price ||
         existingReq !== desired.requires_flavor ||
         existingDeleted !== 0;
 
       if (needsUpdate) {
         updateProduct.run(
           desired.category,
-          existingPrice, // 🔥 MANTENER PRECIO EXISTENTE, NO cambiar al del schema
+          desired.price,
           desired.requires_flavor,
           existing.id
         );
@@ -258,7 +259,6 @@ function syncCatalogSafe() {
     // =========================
     // 3) PACKAGE INCLUDES
     // =========================
-    // tu tabla no guarda qty, así que guardamos solo relación.
     database.prepare("DELETE FROM product_included_extras").run();
 
     const getProductIdByName = database.prepare(
@@ -270,11 +270,17 @@ function syncCatalogSafe() {
     );
 
     for (const pkg of packageIncludes) {
-      const packageRow = getProductIdByName.get(String(pkg.packageName).trim()) as { id: string } | undefined;
+      const packageRow = getProductIdByName.get(
+        String(pkg.packageName).trim()
+      ) as { id: string } | undefined;
+
       if (!packageRow) continue;
 
       for (const extra of pkg.extras) {
-        const extraRow = getProductIdByName.get(String(extra.name).trim()) as { id: string } | undefined;
+        const extraRow = getProductIdByName.get(
+          String(extra.name).trim()
+        ) as { id: string } | undefined;
+
         if (!extraRow) continue;
 
         try {
@@ -309,6 +315,7 @@ function migrateSaleItems() {
       "ALTER TABLE sale_items ADD COLUMN category TEXT NOT NULL DEFAULT 'Sin categoría'"
     );
   }
+
   if (!hasFlavor) {
     alterStatements.push("ALTER TABLE sale_items ADD COLUMN flavor TEXT");
   }

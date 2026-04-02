@@ -88,7 +88,7 @@ export const initialProducts = [
   // POLLOS (requieren sabor)
   { name: "1/4 pollo", category: "Pollos", price: 82, requires_flavor: 1 },
   { name: "1/2 pollo", category: "Pollos", price: 140, requires_flavor: 1 },
-  { name: "1 pollo", category: "Pollos", price: 265, requires_flavor: 1 },
+  { name: "1 pollo", category: "Pollos", price: 255, requires_flavor: 1 },
 
   // ESPECIALIDADES (NO requieren sabor)
   { name: "Veracruz 1 pollo", category: "Especialidades", price: 270, requires_flavor: 0 },
@@ -99,12 +99,12 @@ export const initialProducts = [
   // PAQUETES (requieren sabor)
   { name: "Acompañes", category: "Paquetes", price: 99, requires_flavor: 1 },
   { name: "Amigo", category: "Paquetes", price: 199, requires_flavor: 1 },
-  { name: "Sorpresa", category: "Paquetes", price: 270, requires_flavor: 1 },
+  { name: "Sorpresa", category: "Paquetes", price: 290, requires_flavor: 1 },
   { name: "Primavera", category: "Paquetes", price: 295, requires_flavor: 1 },
   { name: "Pirata", category: "Paquetes", price: 315, requires_flavor: 1 },
   { name: "Taquitos", category: "Paquetes", price: 320, requires_flavor: 1 },
-  { name: "Apollo", category: "Paquetes", price: 265, requires_flavor: 1 },
-  { name: "Paquete Especial", category: "Paquetes", price: 380, requires_flavor: 1 },
+  { name: "Apollo", category: "Paquetes", price: 360, requires_flavor: 1 },
+  { name: "Paquete Especial", category: "Paquetes", price: 399, requires_flavor: 1 },
   { name: "Tesoro", category: "Paquetes", price: 595, requires_flavor: 1 },
 
   // MIÉRCOLES (requieren sabor)
@@ -115,11 +115,11 @@ export const initialProducts = [
   { name: "Ensalada de coditos", category: "Extras", price: 45, requires_flavor: 0 },
   { name: "Arroz", category: "Extras", price: 30, requires_flavor: 0 },
   { name: "Frijol", category: "Extras", price: 25, requires_flavor: 0 },
-  { name: "Purée de papa", category: "Extras", price: 35, requires_flavor: 0 },
+  { name: "Purée de papa", category: "Extras", price: 48, requires_flavor: 0 },
   { name: "Papa al horno", category: "Extras", price: 30, requires_flavor: 0 },
-  { name: "Postre", category: "Extras", price: 25, requires_flavor: 0 },
+  { name: "Postre", category: "Extras", price: 30, requires_flavor: 0 },
   { name: "Tortillas", category: "Extras", price: 30, requires_flavor: 0 },
-  { name: "1/2 Tortillas", category: "Extras", price: 10, requires_flavor: 0 },
+  { name: "1/2 Tortillas", category: "Extras", price: 13, requires_flavor: 0 },
   { name: "Salsa", category: "Extras", price: 20, requires_flavor: 0 },
   { name: "Tacos dorados (4 pzas)", category: "Extras", price: 70, requires_flavor: 0 },
   { name: "Desechable", category: "Extras", price: 5, requires_flavor: 0 },
